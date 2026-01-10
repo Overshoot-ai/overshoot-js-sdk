@@ -1,0 +1,41 @@
+# Source files
+client/
+tsconfig.json
+
+# Tests
+**/__tests__/
+**/*.test.ts
+**/*.spec.ts
+
+# Development files
+.env
+.env.*
+.vscode/
+.idea/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+.travis.yml
+
+# Documentation (keep README.md)
+docs/
+examples/
+playground/
+src/
+
+# Build artifacts
+*.tsbuildinfo

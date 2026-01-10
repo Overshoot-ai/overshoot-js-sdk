@@ -1,0 +1,52 @@
+{
+  "name": "@overshoot/realtime-vision-sdk",
+  "version": "1.0.0",
+  "description": "A TypeScript SDK for real-time AI vision analysis on live video streams and uploaded videos",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "vision",
+    "ai",
+    "realtime",
+    "video",
+    "webrtc",
+    "computer-vision",
+    "ocr",
+    "object-detection"
+  ],
+  "author": "Younes El Hjouji",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/YounesElHjouji/overshoot-js-sdk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/YounesElHjouji/overshoot-js-sdk/issues"
+  },
+  "homepage": "https://github.com/YounesElHjouji/overshoot-js-sdk#readme",
+  "peerDependencies": {},
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "typescript": "^5.3.3",
+    "vitest": "^1.0.4"
+  }
+}
