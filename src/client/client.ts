@@ -14,17 +14,25 @@ import {
   NotFoundError,
   NetworkError,
   ServerError,
+  UnauthorizedError,
 } from "./errors";
 
 type ClientConfig = {
   baseUrl: string;
+  apiKey: string;
 };
 
 export class StreamClient {
   private baseUrl: string;
+  private apiKey: string;
 
   constructor(config: ClientConfig) {
+    if (!config.apiKey || typeof config.apiKey !== "string") {
+      throw new Error("apiKey is required and must be a string");
+    }
+
     this.baseUrl = config.baseUrl;
+    this.apiKey = config.apiKey;
   }
 
   private async request<T>(
@@ -40,6 +48,7 @@ export class StreamClient {
         signal: controller.signal,
         headers: {
           "Content-Type": "application/json",
+          Authorization: `Bearer ${this.apiKey}`,
           ...options.headers,
         },
       });
@@ -52,6 +61,12 @@ export class StreamClient {
 
         const message = errorData.message || errorData.error;
 
+        if (response.status === 401) {
+          throw new UnauthorizedError(
+            message || "Invalid or revoked API key",
+            errorData.request_id,
+          );
+        }
         if (response.status === 422 || response.status === 400) {
           throw new ValidationError(
             message,
@@ -143,6 +158,10 @@ export class StreamClient {
     return new WebSocket(`${wsUrl}/ws/streams/${streamId}`);
   }
 
+  /**
+   * Health check endpoint (for testing, uses internal port if available)
+   * Note: This endpoint may not be available via the main API
+   */
   async healthCheck(): Promise<string> {
     const url = `${this.baseUrl}/healthz`;
     const response = await fetch(url);

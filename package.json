@@ -1,15 +1,15 @@
 {
-  "name": "@overshoot/realtime-vision-sdk",
+  "name": "overshoot",
   "version": "1.0.0",
-  "description": "A TypeScript SDK for real-time AI vision analysis on live video streams and uploaded videos",
-  "type": "module",
-  "main": "./dist/index.js",
-  "module": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "description": "A TypeScript SDK for real-time AI vision analysis on live video streams with sub-second latency",
+  "main": "dist/index.js",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
     }
   },
   "files": [
@@ -18,35 +18,49 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc",
-    "prepublishOnly": "npm run build",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit"
+    "test:ui": "vitest --ui",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
+    "prepublishOnly": "npm run build"
   },
   "keywords": [
+    "realtime",
     "vision",
     "ai",
-    "realtime",
     "video",
+    "stream",
     "webrtc",
     "computer-vision",
-    "ocr",
-    "object-detection"
+    "machine-learning",
+    "typescript"
   ],
-  "author": "Younes El Hjouji",
+  "author": "Overshoot",
+  "license": "MIT",
+  "private": true,
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/YounesElHjouji/overshoot-js-sdk.git"
+    "url": "https://github.com/Overshoot-ai/overshoot-playground.git"
   },
   "bugs": {
-    "url": "https://github.com/YounesElHjouji/overshoot-js-sdk/issues"
+    "url": "https://github.com/overshoot/overshoot-sdk/issues"
   },
-  "homepage": "https://github.com/YounesElHjouji/overshoot-js-sdk#readme",
-  "peerDependencies": {},
+  "homepage": "https://github.com/overshoot/overshoot-sdk#readme",
   "devDependencies": {
-    "@types/node": "^20.10.0",
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^6.19.0",
+    "@typescript-eslint/parser": "^6.19.0",
+    "@vitest/ui": "^1.2.0",
+    "eslint": "^8.56.0",
+    "jsdom": "^27.0.1",
+    "tsup": "^8.0.1",
     "typescript": "^5.3.3",
-    "vitest": "^1.0.4"
+    "vitest": "^1.2.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
   }
 }

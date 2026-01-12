@@ -17,6 +17,13 @@ export class ApiError extends Error {
   }
 }
 
+export class UnauthorizedError extends ApiError {
+  constructor(message: string, requestId?: string) {
+    super(message, 401, requestId);
+    this.name = "UnauthorizedError";
+  }
+}
+
 export class ValidationError extends ApiError {
   constructor(message: string, requestId?: string, details?: any) {
     super(message, 422, requestId, details);

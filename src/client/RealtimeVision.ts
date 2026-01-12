@@ -44,6 +44,12 @@ export interface RealtimeVisionConfig {
   apiUrl: string;
 
   /**
+   * API key for authentication
+   * Required for all API requests
+   */
+  apiKey: string;
+
+  /**
    * The prompt/task to run on window segments of the stream.
    * This runs continuously (at a defined window interval).
    *
@@ -144,7 +150,10 @@ export class RealtimeVision {
   constructor(config: RealtimeVisionConfig) {
     this.validateConfig(config);
     this.config = config;
-    this.client = new StreamClient({ baseUrl: config.apiUrl });
+    this.client = new StreamClient({
+      baseUrl: config.apiUrl,
+      apiKey: config.apiKey,
+    });
   }
 
   /**
@@ -153,6 +162,10 @@ export class RealtimeVision {
   private validateConfig(config: RealtimeVisionConfig): void {
     if (!config.apiUrl || typeof config.apiUrl !== "string") {
       throw new ValidationError("apiUrl is required and must be a string");
+    }
+
+    if (!config.apiKey || typeof config.apiKey !== "string") {
+      throw new ValidationError("apiKey is required and must be a string");
     }
 
     if (!config.prompt || typeof config.prompt !== "string") {
@@ -450,7 +463,7 @@ export class RealtimeVision {
         throw new Error("Failed to create local description");
       }
 
-      // Create stream on server
+      // Create stream on server (with API key authentication)
       const response = await this.client.createStream({
         webrtc: {
           type: "offer",
@@ -470,7 +483,7 @@ export class RealtimeVision {
 
       this.streamId = response.stream_id;
 
-      // Set up keepalive
+      // Set up keepalive (with API key authentication)
       this.setupKeepalive(response.lease?.ttl_seconds);
 
       // Connect WebSocket for results
@@ -512,6 +525,13 @@ export class RealtimeVision {
   private setupWebSocket(streamId: string): void {
     this.webSocket = this.client.connectWebSocket(streamId);
 
+    this.webSocket.onopen = () => {
+      // Send API key as first message for authentication
+      if (this.webSocket) {
+        this.webSocket.send(JSON.stringify({ api_key: this.config.apiKey }));
+      }
+    };
+
     this.webSocket.onmessage = (event) => {
       try {
         const result: StreamInferenceResult = JSON.parse(event.data);
@@ -529,10 +549,18 @@ export class RealtimeVision {
       this.handleFatalError(error);
     };
 
-    this.webSocket.onclose = () => {
+    this.webSocket.onclose = (event) => {
       if (this.isRunning) {
-        const error = new Error("WebSocket closed unexpectedly");
-        this.handleFatalError(error);
+        // Check if closed due to authentication failure
+        if (event.code === 1008) {
+          const error = new Error(
+            "WebSocket authentication failed: Invalid or revoked API key",
+          );
+          this.handleFatalError(error);
+        } else {
+          const error = new Error("WebSocket closed unexpectedly");
+          this.handleFatalError(error);
+        }
       }
     };
   }

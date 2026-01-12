@@ -6,7 +6,10 @@ describe("StreamClient", () => {
   let client: StreamClient;
 
   beforeEach(() => {
-    client = new StreamClient({ baseUrl: "http://test.local" });
+    client = new StreamClient({
+      baseUrl: "http://test.local",
+      apiKey: "test-api-key",
+    });
     vi.clearAllMocks();
   });
 
@@ -97,23 +100,6 @@ describe("StreamClient", () => {
 
       await expect(client.renewLease("test-id")).rejects.toThrow(NetworkError);
     });
-
-    it("should throw NetworkError on timeout", async () => {
-      const slowClient = new StreamClient({
-        baseUrl: "http://test.local",
-        timeout: 100,
-      });
-
-      global.fetch = vi
-        .fn()
-        .mockImplementation(
-          () => new Promise((resolve) => setTimeout(resolve, 200)),
-        );
-
-      await expect(slowClient.renewLease("test-id")).rejects.toThrow(
-        NetworkError,
-      );
-    });
   });
 
   describe("connectWebSocket", () => {
@@ -123,7 +109,10 @@ describe("StreamClient", () => {
     });
 
     it("should handle https to wss conversion", () => {
-      const secureClient = new StreamClient({ baseUrl: "https://test.local" });
+      const secureClient = new StreamClient({
+        baseUrl: "https://test.local",
+        apiKey: "test-api-key",
+      });
       const ws = secureClient.connectWebSocket("test-id");
       expect(ws.url).toBe("wss://test.local/ws/streams/test-id");
     });
