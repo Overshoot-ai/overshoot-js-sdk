@@ -1,7 +1,10 @@
 {
   "name": "overshoot",
-  "version": "1.0.0",
-  "description": "A TypeScript SDK for real-time AI vision analysis on live video streams with sub-second latency",
+  "version": "0.1.0-alpha.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "TypeScript SDK for real-time AI vision analysis on live video streams",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -25,7 +28,7 @@
     "test:ui": "vitest --ui",
     "type-check": "tsc --noEmit",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build && npm run type-check && npm test"
   },
   "keywords": [
     "realtime",
@@ -40,15 +43,14 @@
   ],
   "author": "Overshoot",
   "license": "MIT",
-  "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/Overshoot-ai/overshoot-playground.git"
+    "url": "https://github.com/Overshoot-ai/overshoot-js-sdk.git"
   },
   "bugs": {
-    "url": "https://github.com/overshoot/overshoot-sdk/issues"
+    "url": "https://github.com/Overshoot-ai/overshoot-js-sdk/issues"
   },
-  "homepage": "https://github.com/overshoot/overshoot-sdk#readme",
+  "homepage": "https://github.com/Overshoot-ai/overshoot-js-sdk#readme",
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",

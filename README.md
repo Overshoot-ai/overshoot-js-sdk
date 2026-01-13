@@ -1,11 +1,19 @@
 # Overshoot SDK
 
+> **⚠️ Alpha Release**: This is an alpha version (0.1.0-alpha.0). The API may change in future versions.
+
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
 ## Installation
 
 ```bash
-npm install overshoot
+npm install overshoot@alpha
+```
+
+Or install a specific alpha version:
+
+```bash
+npm install overshoot@0.1.0-alpha.0
 ```
 
 ## Quick Start
@@ -255,7 +263,6 @@ interface StreamInferenceResult {
 - Document scanning and alignment detection
 - Sports and fitness form analysis
 - Video file content analysis
-- Your creative usecases
 
 ## Error Types
 
@@ -298,6 +305,10 @@ Requires browsers with support for:
 - Modern JavaScript (ES2020+)
 
 Supported browsers: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
+
+## Feedback
+
+As this is an alpha release, we welcome your feedback! Please report issues or suggestions through GitHub issues.
 
 ## License
 
