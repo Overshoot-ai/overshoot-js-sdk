@@ -26,7 +26,6 @@ const DEFAULTS = {
   ] as RTCIceServer[],
 } as const;
 
-console.log("defaults", DEFAULTS);
 /**
  * Validation constraints
  */
@@ -37,6 +36,35 @@ const CONSTRAINTS = {
   DELAY_SECONDS: { min: 0, max: 60 },
   RATING: { min: 1, max: 5 },
 } as const;
+
+/**
+ * Logger utility for controlled logging
+ */
+class Logger {
+  private debugEnabled: boolean;
+
+  constructor(debugEnabled: boolean = false) {
+    this.debugEnabled = debugEnabled;
+  }
+
+  debug(...args: any[]): void {
+    if (this.debugEnabled) {
+      console.log("[RealtimeVision Debug]", ...args);
+    }
+  }
+
+  info(...args: any[]): void {
+    console.log("[RealtimeVision]", ...args);
+  }
+
+  warn(...args: any[]): void {
+    console.warn("[RealtimeVision]", ...args);
+  }
+
+  error(...args: any[]): void {
+    console.error("[RealtimeVision]", ...args);
+  }
+}
 
 export interface RealtimeVisionConfig {
   /**
@@ -93,12 +121,6 @@ export interface RealtimeVisionConfig {
   onError?: (error: Error) => void;
 
   /**
-   * @deprecated Use source instead. This will be removed in a future version.
-   * Camera facing mode
-   */
-  cameraFacing?: "user" | "environment";
-
-  /**
    * Custom processing configuration
    * All fields are optional and will use defaults if not provided
    */
@@ -123,9 +145,15 @@ export interface RealtimeVisionConfig {
 
   /**
    * ICE servers for WebRTC connection
-   * If not provided, uses Google's public STUN server
+   * If not provided, uses default TURN servers
    */
   iceServers?: RTCIceServer[];
+
+  /**
+   * Enable debug logging
+   * @default false
+   */
+  debug?: boolean;
 }
 
 class ValidationError extends Error {
@@ -138,6 +166,7 @@ class ValidationError extends Error {
 export class RealtimeVision {
   private config: RealtimeVisionConfig;
   private client: StreamClient;
+  private logger: Logger;
 
   private mediaStream: MediaStream | null = null;
   private peerConnection: RTCPeerConnection | null = null;
@@ -151,6 +180,7 @@ export class RealtimeVision {
   constructor(config: RealtimeVisionConfig) {
     this.validateConfig(config);
     this.config = config;
+    this.logger = new Logger(config.debug ?? false);
     this.client = new StreamClient({
       baseUrl: config.apiUrl,
       apiKey: config.apiKey,
@@ -242,25 +272,23 @@ export class RealtimeVision {
    * Create media stream from the configured source
    */
   private async createMediaStream(source: StreamSource): Promise<MediaStream> {
-    console.log("createMediaStream called with source:", source);
+    this.logger.debug("Creating media stream from source:", source.type);
 
     switch (source.type) {
       case "camera":
-        console.log("Using camera source");
         return await navigator.mediaDevices.getUserMedia({
           video: { facingMode: { ideal: source.cameraFacing } },
           audio: false,
         });
 
       case "video":
-        console.log("Using video file source");
         const video = document.createElement("video");
         video.src = URL.createObjectURL(source.file);
         video.muted = true;
         video.loop = true;
-        video.playsInline = true; // Important for mobile
+        video.playsInline = true;
 
-        console.log("Loading video file:", source.file.name);
+        this.logger.debug("Loading video file:", source.file.name);
 
         // Wait for video to be ready
         await new Promise<void>((resolve, reject) => {
@@ -270,52 +298,36 @@ export class RealtimeVision {
 
           video.onloadedmetadata = () => {
             clearTimeout(timeout);
-            console.log("Video metadata loaded, readyState:", video.readyState);
+            this.logger.debug("Video metadata loaded");
             resolve();
           };
 
           video.onerror = (e) => {
             clearTimeout(timeout);
-            console.error("Video loading error:", e);
+            this.logger.error("Video loading error:", e);
             reject(new Error("Failed to load video file"));
           };
 
-          // Also try to load in case metadata is already loaded
           if (video.readyState >= 1) {
             clearTimeout(timeout);
-            console.log("Video metadata already loaded");
             resolve();
           }
         });
 
-        console.log("Starting video playback");
         await video.play();
-        console.log("Video playing, readyState:", video.readyState);
+        this.logger.debug("Video playback started");
 
-        // Try to capture stream
-        let stream: MediaStream | null = null;
-        try {
-          stream = video.captureStream();
-          console.log("captureStream() returned:", stream);
-        } catch (e) {
-          console.error("captureStream() error:", e);
-          throw new Error(`Failed to capture video stream: ${e}`);
-        }
-
+        const stream = video.captureStream();
         if (!stream) {
-          throw new Error("captureStream() returned null or undefined");
+          throw new Error("Failed to capture video stream");
         }
 
-        // Ensure the stream has video tracks
         const videoTracks = stream.getVideoTracks();
-        console.log("Video tracks:", videoTracks.length);
-
         if (videoTracks.length === 0) {
           throw new Error("Video stream has no video tracks");
         }
 
         this.videoElement = video;
-        console.log("Video file source ready");
         return stream;
 
       default:
@@ -331,31 +343,32 @@ export class RealtimeVision {
     source: StreamSource,
   ): Promise<number> {
     if (!stream) {
-      console.warn("Stream is null, using fallback FPS");
+      this.logger.warn("Stream is null, using fallback FPS");
       return DEFAULTS.FALLBACK_FPS;
     }
 
     const videoTracks = stream.getVideoTracks();
     if (!videoTracks || videoTracks.length === 0) {
-      console.warn("No video tracks found, using fallback FPS");
+      this.logger.warn("No video tracks found, using fallback FPS");
       return DEFAULTS.FALLBACK_FPS;
     }
 
     const videoTrack = videoTracks[0];
     if (!videoTrack) {
-      console.warn("First video track is null, using fallback FPS");
+      this.logger.warn("First video track is null, using fallback FPS");
       return DEFAULTS.FALLBACK_FPS;
     }
 
     // For camera sources, get FPS from track settings
     if (source.type === "camera") {
       const settings = videoTrack.getSettings();
-      return settings.frameRate ?? DEFAULTS.FALLBACK_FPS;
+      const fps = settings.frameRate ?? DEFAULTS.FALLBACK_FPS;
+      this.logger.debug("Detected camera FPS:", fps);
+      return fps;
     }
 
     // For video file sources, try to get FPS from video element
     if (source.type === "video" && this.videoElement) {
-      // Wait for video metadata to load
       await new Promise<void>((resolve, reject) => {
         if (this.videoElement!.readyState >= 1) {
           resolve();
@@ -366,8 +379,8 @@ export class RealtimeVision {
         }
       });
 
-      // For video files, we can't reliably get FPS from the element
-      // Use fallback FPS or let user specify in config
+      // For video files, use fallback FPS or user-specified config
+      this.logger.debug("Using fallback FPS for video file");
       return DEFAULTS.FALLBACK_FPS;
     }
 
@@ -393,14 +406,6 @@ export class RealtimeVision {
    * Get the effective source configuration
    */
   private getSource(): StreamSource {
-    // Handle deprecated cameraFacing property
-    if (this.config.cameraFacing && !this.config.source) {
-      return {
-        type: "camera",
-        cameraFacing: this.config.cameraFacing,
-      };
-    }
-
     return this.config.source ?? DEFAULTS.SOURCE;
   }
 
@@ -413,74 +418,51 @@ export class RealtimeVision {
     }
 
     try {
-      // Get media stream from configured source
       const source = this.getSource();
-      console.log("Starting with source:", source.type);
+      this.logger.debug("Starting stream with source type:", source.type);
 
-      // CRITICAL DEBUG: Check if File object exists for video sources
       if (source.type === "video") {
-        console.log("Video source file:", source.file);
-        console.log("File is instance of File:", source.file instanceof File);
-        console.log("File name:", source.file?.name);
-        console.log("File size:", source.file?.size);
+        this.logger.debug("Video file:", {
+          name: source.file.name,
+          size: source.file.size,
+          type: source.file.type,
+        });
 
-        if (!source.file) {
-          throw new Error("Video source has no file!");
-        }
-        if (!(source.file instanceof File)) {
-          throw new Error("Video source.file is not a File object!");
+        if (!source.file || !(source.file instanceof File)) {
+          throw new Error("Invalid video file");
         }
       }
 
+      // Create media stream
       this.mediaStream = await this.createMediaStream(source);
-      console.log("mediaStream after createMediaStream:", this.mediaStream);
-
-      // Get FPS for the stream
-      const detectedFps = await this.getStreamFps(this.mediaStream, source);
-      console.log("Detected FPS:", detectedFps);
-
-      if (!this.mediaStream) {
-        throw new Error("mediaStream is null after getMediaStream");
-      }
-
       const videoTrack = this.mediaStream.getVideoTracks()[0];
-      console.log("Video track:", videoTrack);
-
       if (!videoTrack) {
         throw new Error("No video track available");
       }
 
-      // Set up WebRTC peer connection with initial ICE servers
-      // Use user-provided or default to public STUN servers
-      const initialIceServers = this.config.iceServers ?? DEFAULTS.ICE_SERVERS;
-      console.log(
-        "🔧 Creating peer connection with initial ICE servers:",
-        initialIceServers,
-      );
-      this.peerConnection = new RTCPeerConnection({
-        iceServers: initialIceServers,
-      });
+      // Get FPS for the stream
+      const detectedFps = await this.getStreamFps(this.mediaStream, source);
 
-      // Add ICE candidate logging
+      // Set up WebRTC peer connection
+      const iceServers = this.config.iceServers ?? DEFAULTS.ICE_SERVERS;
+      this.logger.debug("Creating peer connection with ICE servers");
+      this.peerConnection = new RTCPeerConnection({ iceServers });
+
+      // Set up ICE logging
       this.peerConnection.onicecandidate = (event) => {
         if (event.candidate) {
-          console.log("🧊 ICE candidate:", {
+          this.logger.debug("ICE candidate:", {
             type: event.candidate.type,
             protocol: event.candidate.protocol,
-            candidate: event.candidate.candidate,
           });
-          if (event.candidate.candidate.includes("relay")) {
-            console.log("✅ TURN relay candidate generated!");
-          }
         } else {
-          console.log("🧊 ICE gathering complete");
+          this.logger.debug("ICE gathering complete");
         }
       };
 
-      // Add ICE connection state logging
       this.peerConnection.oniceconnectionstatechange = () => {
-        console.log(
-          "🔌 ICE connection state:",
+        this.logger.debug(
+          "ICE connection state:",
           this.peerConnection?.iceConnectionState,
         );
       };
@@ -495,7 +477,8 @@ export class RealtimeVision {
         throw new Error("Failed to create local description");
       }
 
-      // Create stream on server (with API key authentication)
+      // Create stream on server
+      this.logger.debug("Creating stream on server");
       const response = await this.client.createStream({
         webrtc: {
           type: "offer",
@@ -510,45 +493,18 @@ export class RealtimeVision {
         },
       });
 
-      console.log("📡 Backend response received:", {
+      this.logger.debug("Backend response received:", {
         stream_id: response.stream_id,
         has_turn_servers: !!response.turn_servers,
-        turn_count: response.turn_servers?.length || 0,
       });
 
-      // Update ICE servers with TURN credentials from backend
-      // if (response.turn_servers && response.turn_servers.length > 0) {
-      //   console.log("🔥 TURN CREDENTIALS RECEIVED FROM BACKEND:");
-      //   console.log("   Username:", response.turn_servers[0].username);
-      //   console.log(
-      //     "   Credential:",
-      //     response.turn_servers[0].credential?.substring(0, 10) + "...",
-      //   );
-      //   console.log("   URLs:", response.turn_servers[0].urls);
-      //
-      //   console.log("🔄 Updating peer connection with new ICE servers...");
-      //   this.peerConnection.setConfiguration({
-      //     iceServers: response.turn_servers,
-      //   });
-      //   console.log("✅ ICE servers updated successfully");
-      //
-      //   // Restart ICE to gather new candidates with TURN servers
-      //   console.log("🔄 Restarting ICE to gather TURN candidates...");
-      //   await this.peerConnection.setLocalDescription(
-      //     await this.peerConnection.createOffer({ iceRestart: true }),
-      //   );
-      //   console.log("✅ ICE restart initiated");
-      // } else {
-      //   console.warn("⚠️  NO TURN SERVERS in backend response!");
-      // }
-      //
-      // Set remote description (ICE gathering starts now with TURN servers)
-
+      // Set remote description
       await this.peerConnection.setRemoteDescription(response.webrtc);
 
       this.streamId = response.stream_id;
+      this.logger.info("Stream started:", this.streamId);
 
-      // Set up keepalive (with API key authentication)
+      // Set up keepalive
       this.setupKeepalive(response.lease?.ttl_seconds);
 
       // Connect WebSocket for results
@@ -570,12 +526,16 @@ export class RealtimeVision {
     }
 
     const intervalMs = (ttlSeconds / 2) * 1000;
+    this.logger.debug("Setting up keepalive with interval:", intervalMs, "ms");
+
     this.keepaliveInterval = window.setInterval(async () => {
       try {
         if (this.streamId) {
           await this.client.renewLease(this.streamId);
+          this.logger.debug("Lease renewed");
         }
       } catch (error) {
+        this.logger.error("Keepalive failed:", error);
         const keepaliveError = new Error(
           `Keepalive failed: ${error instanceof Error ? error.message : String(error)}`,
         );
@@ -588,10 +548,11 @@ export class RealtimeVision {
    * Set up WebSocket connection with error handling
    */
   private setupWebSocket(streamId: string): void {
+    this.logger.debug("Connecting WebSocket for stream:", streamId);
     this.webSocket = this.client.connectWebSocket(streamId);
 
     this.webSocket.onopen = () => {
-      // Send API key as first message for authentication
+      this.logger.debug("WebSocket connected");
       if (this.webSocket) {
         this.webSocket.send(JSON.stringify({ api_key: this.config.apiKey }));
       }
@@ -610,22 +571,26 @@ export class RealtimeVision {
     };
 
     this.webSocket.onerror = () => {
+      this.logger.error("WebSocket error occurred");
       const error = new Error("WebSocket error occurred");
       this.handleFatalError(error);
     };
 
     this.webSocket.onclose = (event) => {
       if (this.isRunning) {
-        // Check if closed due to authentication failure
         if (event.code === 1008) {
+          this.logger.error("WebSocket authentication failed");
           const error = new Error(
             "WebSocket authentication failed: Invalid or revoked API key",
           );
           this.handleFatalError(error);
         } else {
+          this.logger.warn("WebSocket closed unexpectedly:", event.code);
           const error = new Error("WebSocket closed unexpectedly");
           this.handleFatalError(error);
         }
+      } else {
+        this.logger.debug("WebSocket closed");
       }
     };
   }
@@ -634,6 +599,7 @@ export class RealtimeVision {
    * Handle non-fatal errors (report but don't stop stream)
    */
   private handleNonFatalError(error: Error): void {
+    this.logger.warn("Non-fatal error:", error.message);
     if (this.config.onError) {
       this.config.onError(error);
     }
@@ -643,6 +609,7 @@ export class RealtimeVision {
    * Handle fatal errors (stop stream and report)
    */
   private async handleFatalError(error: unknown): Promise<void> {
+    this.logger.error("Fatal error:", error);
     await this.cleanup();
     this.isRunning = false;
 
@@ -666,13 +633,16 @@ export class RealtimeVision {
       throw new ValidationError("prompt must be a non-empty string");
     }
 
+    this.logger.debug("Updating prompt");
     await this.client.updatePrompt(this.streamId, prompt);
+    this.logger.info("Prompt updated");
   }
 
   /**
    * Stop the vision stream and clean up resources
    */
   async stop(): Promise<void> {
+    this.logger.info("Stopping stream");
     await this.cleanup();
     this.isRunning = false;
   }
@@ -702,11 +672,13 @@ export class RealtimeVision {
       throw new ValidationError("category must be a non-empty string");
     }
 
+    this.logger.debug("Submitting feedback");
     await this.client.submitFeedback(this.streamId, {
       rating: feedback.rating,
       category: feedback.category,
       feedback: feedback.feedback ?? "",
     });
+    this.logger.info("Feedback submitted");
   }
 
   /**
@@ -731,6 +703,8 @@ export class RealtimeVision {
   }
 
   private async cleanup(): Promise<void> {
+    this.logger.debug("Cleaning up resources");
+
     if (this.keepaliveInterval) {
       window.clearInterval(this.keepaliveInterval);
       this.keepaliveInterval = null;
@@ -759,5 +733,6 @@ export class RealtimeVision {
     }
 
     this.streamId = null;
+    this.logger.debug("Cleanup complete");
   }
 }

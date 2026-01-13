@@ -1,6 +1,6 @@
 # Overshoot SDK
 
-A TypeScript SDK for real-time AI vision analysis on live video streams with sub-second latency.
+TypeScript SDK for real-time AI vision analysis on live video streams.
 
 ## Installation
 
@@ -10,7 +10,7 @@ npm install overshoot
 
 ## Quick Start
 
-### Using Camera
+### Camera Source
 
 ```typescript
 import { RealtimeVision } from "overshoot";
@@ -18,7 +18,8 @@ import { RealtimeVision } from "overshoot";
 const vision = new RealtimeVision({
   apiUrl: "https://api.overshoot.ai",
   apiKey: "your-api-key-here",
-  prompt: "Read any visible text and return JSON: {text: string | null, confidence: number}",
+  prompt:
+    "Read any visible text and return JSON: {text: string | null, confidence: number}",
   onResult: (result) => {
     console.log(result.result);
     console.log(`Latency: ${result.total_latency_ms}ms`);
@@ -26,22 +27,18 @@ const vision = new RealtimeVision({
 });
 
 await vision.start();
-// Camera is now streaming, results arrive ~1/second
-await vision.stop();
 ```
 
-### Using Video File
+### Video File Source
 
 ```typescript
-import { RealtimeVision } from "overshoot";
-
 const vision = new RealtimeVision({
   apiUrl: "https://api.overshoot.ai",
   apiKey: "your-api-key-here",
   prompt: "Detect all objects in the video and count them",
   source: {
     type: "video",
-    file: videoFile, // File object from input element
+    file: videoFile, // File object from <input type="file">
   },
   onResult: (result) => {
     console.log(result.result);
@@ -51,67 +48,64 @@ const vision = new RealtimeVision({
 await vision.start();
 ```
 
-## Features
+## Configuration
 
-- 🎥 **Real-time video analysis** - Sub-second latency (~300ms)
-- 📹 **Multiple sources** - Camera or video file support
-- 🤖 **AI-powered** - Uses state-of-the-art vision models
-- 🔄 **Continuous inference** - ~1 result per second
-- 📊 **Structured output** - JSON schema support
-- 🔒 **Secure** - API key authentication
-- 📱 **Cross-platform** - Works on mobile and desktop
-- ⚡ **WebRTC-based** - Low latency streaming
-
-## Documentation
-
-For complete documentation, see the [SDK README](sdk/README.md).
-
-## API Reference
-
-### Constructor
-
-```typescript
-new RealtimeVision(config: RealtimeVisionConfig)
-```
-
-### Configuration
+### RealtimeVisionConfig
 
 ```typescript
 interface RealtimeVisionConfig {
-  apiUrl: string;              // Required: API endpoint
-  apiKey: string;              // Required: API key
-  prompt: string;              // Required: Task description
-  onResult: (result) => void;  // Required: Result handler
-  
+  // Required
+  apiUrl: string; // API endpoint
+  apiKey: string; // API key for authentication
+  prompt: string; // Task description for the model
+  onResult: (result: StreamInferenceResult) => void;
+
   // Optional
-  source?: StreamSource;       // Video source (camera or file)
-  backend?: "overshoot" | "gemini";
-  model?: string;
-  outputSchema?: Record<string, any>;
+  source?: StreamSource; // Video source (default: environment-facing camera)
+  backend?: "overshoot" | "gemini"; // Model backend (default: "overshoot")
+  model?: string; // Model name (default: "Qwen/Qwen3-VL-30B-A3B-Instruct")
+  outputSchema?: Record<string, any>; // JSON schema for structured output
   onError?: (error: Error) => void;
+  debug?: boolean; // Enable debug logging (default: false)
+
   processing?: {
-    sampling_ratio?: number;
-    fps?: number;
-    clip_length_seconds?: number;
-    delay_seconds?: number;
+    fps?: number; // Actual source frames per second (1-120)
+    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.1)
+    clip_length_seconds?: number; // Size of each clip that the VLM infers on (0.1-60, default: 1.0)
+    delay_seconds?: number; // Shift between clips (0-60, default: 1.0)
   };
+
+  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers
 }
 ```
 
-### Methods
+### StreamSource
 
 ```typescript
-await vision.start();                    // Start streaming
-await vision.stop();                     // Stop and cleanup
-await vision.updatePrompt(newPrompt);    // Change task while running
-vision.getMediaStream();                 // Get MediaStream for preview
-vision.getStreamId();                    // Get current stream ID
-vision.isActive();                       // Check if running
+type StreamSource =
+  | { type: "camera"; cameraFacing: "user" | "environment" }
+  | { type: "video"; file: File };
+```
+
+## API Methods
+
+```typescript
+// Lifecycle
+await vision.start(); // Start the video stream
+await vision.stop(); // Stop and cleanup resources
+
+// Runtime control
+await vision.updatePrompt(newPrompt); // Update task while running
+
+// State access
+vision.getMediaStream(); // Get MediaStream for video preview
+vision.getStreamId(); // Get current stream ID
+vision.isActive(); // Check if stream is running
 ```
 
 ## Examples
 
-### Object Detection
+### Object Detection with Structured Output
 
 ```typescript
 const vision = new RealtimeVision({
@@ -124,56 +118,82 @@ const vision = new RealtimeVision({
       objects: { type: "array", items: { type: "string" } },
       count: { type: "integer" },
     },
+    required: ["objects", "count"],
   },
   onResult: (result) => {
     const data = JSON.parse(result.result);
-    console.log("Found:", data.objects);
+    console.log(`Found ${data.count} objects:`, data.objects);
   },
 });
+
+await vision.start();
 ```
 
-### Text Reading (OCR)
+### Text Recognition (OCR)
 
 ```typescript
 const vision = new RealtimeVision({
   apiUrl: "https://api.overshoot.ai",
   apiKey: "your-api-key",
-  prompt: "Read any visible text",
+  prompt: "Read all visible text in the image",
   onResult: (result) => {
     console.log("Text:", result.result);
   },
 });
+
+await vision.start();
 ```
 
-### Video File Analysis
+### Video Preview Display
 
 ```typescript
-const fileInput = document.querySelector('input[type="file"]');
-const videoFile = fileInput.files[0];
-
 const vision = new RealtimeVision({
   apiUrl: "https://api.overshoot.ai",
   apiKey: "your-api-key",
-  prompt: "Count the number of people in each frame",
-  source: {
-    type: "video",
-    file: videoFile,
-  },
-  onResult: (result) => {
-    console.log("People count:", result.result);
-  },
+  prompt: "Describe what you see",
+  onResult: (result) => console.log(result.result),
 });
+
+await vision.start();
+
+// Attach to video element for preview
+const videoElement = document.querySelector("video");
+const stream = vision.getMediaStream();
+if (stream) {
+  videoElement.srcObject = stream;
+}
 ```
 
-## Use Cases
+### Dynamic Prompt Updates
 
-- **Text/OCR reading** - Real-time text extraction
-- **Safety monitoring** - PPE detection, hazard identification
-- **Accessibility** - Scene description for visually impaired
-- **Gesture control** - Hand gesture recognition
-- **Document scanning** - Auto-capture when document aligned
-- **Sports analysis** - Player tracking, form analysis
-- **Video file analysis** - Analyze pre-recorded videos
+```typescript
+const vision = new RealtimeVision({
+  apiUrl: "https://api.overshoot.ai",
+  apiKey: "your-api-key",
+  prompt: "Count people",
+  onResult: (result) => console.log(result.result),
+});
+
+await vision.start();
+
+// Change task without restarting stream
+await vision.updatePrompt("Detect vehicles instead");
+```
+
+### Debug Mode
+
+```typescript
+const vision = new RealtimeVision({
+  apiUrl: "https://api.overshoot.ai",
+  apiKey: "your-api-key",
+  prompt: "Detect objects",
+  debug: true, // Enable detailed logging
+  onResult: (result) => console.log(result.result),
+});
+
+await vision.start();
+// Console will show detailed connection and processing logs
+```
 
 ## Error Handling
 
@@ -183,7 +203,11 @@ const vision = new RealtimeVision({
   apiKey: "your-api-key",
   prompt: "Detect objects",
   onResult: (result) => {
-    console.log(result.result);
+    if (result.ok) {
+      console.log("Success:", result.result);
+    } else {
+      console.error("Inference error:", result.error);
+    }
   },
   onError: (error) => {
     if (error.name === "UnauthorizedError") {
@@ -195,7 +219,54 @@ const vision = new RealtimeVision({
     }
   },
 });
+
+try {
+  await vision.start();
+} catch (error) {
+  console.error("Failed to start:", error);
+}
 ```
+
+## Result Format
+
+The `onResult` callback receives a `StreamInferenceResult` object:
+
+```typescript
+interface StreamInferenceResult {
+  id: string; // Result ID
+  stream_id: string; // Stream ID
+  model_backend: "gemini" | "overshoot";
+  model_name: string; // Model used
+  prompt: string; // Task that was run
+  result: string; // Model output (text or JSON string)
+  inference_latency_ms: number; // Model inference time
+  total_latency_ms: number; // End-to-end latency
+  ok: boolean; // Success status
+  error: string | null; // Error message if failed
+}
+```
+
+## Use Cases
+
+- Real-time text extraction and OCR
+- Safety monitoring (PPE detection, hazard identification)
+- Accessibility tools (scene description)
+- Gesture recognition and control
+- Document scanning and alignment detection
+- Sports and fitness form analysis
+- Video file content analysis
+- Your creative usecases
+
+## Error Types
+
+The SDK provides specific error classes for different failure modes:
+
+- `ValidationError` - Invalid configuration or parameters
+- `UnauthorizedError` - Invalid or revoked API key
+- `NotFoundError` - Stream or resource not found
+- `NetworkError` - Network connectivity issues
+- `ServerError` - Server-side errors
+- `ApiError` - General API errors
 
 ## Development
 
@@ -203,13 +274,11 @@ const vision = new RealtimeVision({
 # Install dependencies
 npm install
 
-# Build the package
+# Build
 npm run build
 
-# Run tests
+# Test
 npm test
-
-# Run tests in watch mode
 npm run test:watch
 
 # Type check
@@ -219,20 +288,17 @@ npm run type-check
 npm run lint
 ```
 
-## Publishing
+## Browser Compatibility
 
-This is a private package. To publish to npm:
+Requires browsers with support for:
 
-1. Update version in `package.json`
-2. Build the package: `npm run build`
-3. Publish: `npm publish`
+- WebRTC (RTCPeerConnection)
+- MediaStream API
+- WebSocket
+- Modern JavaScript (ES2020+)
 
-Or use GitHub Package Registry for private hosting.
+Supported browsers: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) file for details.
-
-## Support
-
-For issues, questions, or feature requests, please open an issue on GitHub.
+MIT
