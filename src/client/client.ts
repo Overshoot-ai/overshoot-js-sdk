@@ -42,15 +42,33 @@ export class StreamClient {
     const url = `${this.baseUrl}${path}`;
     const controller = new AbortController();
 
+    // Log outgoing cookies
+    console.log("[Cookie Debug] Outgoing request:", {
+      url,
+      method: options.method || "GET",
+      cookies: document.cookie,
+      hasCookie: document.cookie.includes("media-gateway-route"),
+    });
+
     try {
       const response = await fetch(url, {
         ...options,
         signal: controller.signal,
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey}`,
           ...options.headers,
         },
+      });
+
+      // Log incoming cookies from response
+      const setCookie = response.headers.get("set-cookie");
+      console.log("[Cookie Debug] Response received:", {
+        url,
+        status: response.status,
+        setCookieHeader: setCookie,
+        allCookiesNow: document.cookie,
       });
 
       if (!response.ok) {
@@ -106,7 +124,6 @@ export class StreamClient {
       throw new NetworkError("Unknown network error");
     }
   }
-
   async createStream(
     request: StreamCreateRequest,
   ): Promise<StreamCreateResponse> {
@@ -164,7 +181,9 @@ export class StreamClient {
    */
   async healthCheck(): Promise<string> {
     const url = `${this.baseUrl}/healthz`;
-    const response = await fetch(url);
+    const response = await fetch(url, {
+      credentials: "include", // ← ADD THIS HERE TOO
+    });
     return response.text();
   }
 }
