@@ -1,6 +1,6 @@
 # Overshoot SDK
 
-> **⚠️ Alpha Release**: This is an alpha version (0.1.0-alpha.0). The API may change in future versions.
+> **⚠️ Alpha Release**: This is an alpha version (0.1.0-alpha.3). The API may change in future versions.
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
@@ -13,7 +13,7 @@ npm install overshoot@alpha
 Or install a specific alpha version:
 
 ```bash
-npm install overshoot@0.1.0-alpha.0
+npm install @overshoot/sdk@0.1.0-alpha.3
 ```
 
 ## Quick Start
@@ -24,7 +24,7 @@ npm install overshoot@0.1.0-alpha.0
 import { RealtimeVision } from "overshoot";
 
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt:
     "Read any visible text and return JSON: {text: string | null, confidence: number}",
@@ -41,7 +41,7 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt: "Detect all objects in the video and count them",
   source: {
@@ -117,7 +117,7 @@ vision.isActive(); // Check if stream is running
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects and return JSON: {objects: string[], count: number}",
   outputSchema: {
@@ -141,7 +141,7 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Read all visible text in the image",
   onResult: (result) => {
@@ -156,7 +156,7 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Describe what you see",
   onResult: (result) => console.log(result.result),
@@ -176,7 +176,7 @@ if (stream) {
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Count people",
   onResult: (result) => console.log(result.result),
@@ -192,7 +192,7 @@ await vision.updatePrompt("Detect vehicles instead");
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects",
   debug: true, // Enable detailed logging
@@ -207,7 +207,7 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://api.overshoot.ai",
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects",
   onResult: (result) => {
