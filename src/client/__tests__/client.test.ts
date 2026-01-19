@@ -29,7 +29,11 @@ describe("StreamClient", () => {
       const result = await client.createStream({
         webrtc: { type: "offer", sdp: "test-sdp" },
         processing: { sampling_ratio: 0.5, fps: 30 },
-        inference: { prompt: "test", backend: "gemini", model: "test-model" },
+        inference: {
+          prompt: "test",
+          backend: "overshoot",
+          model: "test-model",
+        },
       });
 
       expect(result).toEqual(mockResponse);
@@ -54,7 +58,7 @@ describe("StreamClient", () => {
         client.createStream({
           webrtc: { type: "offer", sdp: "" },
           processing: { sampling_ratio: 0.5, fps: 30 },
-          inference: { prompt: "test", backend: "gemini", model: "test" },
+          inference: { prompt: "test", backend: "overshoot", model: "test" },
         }),
       ).rejects.toThrow(ValidationError);
     });

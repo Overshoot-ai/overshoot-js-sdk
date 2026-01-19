@@ -21,7 +21,7 @@ export type StreamProcessingConfig = {
 
 export type StreamInferenceConfig = {
   prompt: string;
-  backend: "gemini" | "overshoot";
+  backend: "overshoot";
   model: string;
   output_schema_json?: Record<string, any>;
 };
@@ -49,7 +49,7 @@ export type StreamCreateResponse = {
 export type StreamInferenceResult = {
   id: string;
   stream_id: string;
-  model_backend: "gemini" | "overshoot";
+  model_backend: "overshoot";
   model_name: string;
   prompt: string;
   result: string; // normal string or parseable json string depending on the stream
@@ -63,7 +63,7 @@ export type StreamConfigResponse = {
   id: string;
   stream_id: string;
   prompt: string;
-  backend: "gemini" | "overshoot";
+  backend: "overshoot";
   model: string;
   output_schema_json?: Record<string, any>;
   created_at?: string;

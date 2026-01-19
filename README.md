@@ -70,7 +70,7 @@ interface RealtimeVisionConfig {
 
   // Optional
   source?: StreamSource; // Video source (default: environment-facing camera)
-  backend?: "overshoot" | "gemini"; // Model backend (default: "overshoot")
+  backend?: "overshoot"; // Model backend (default: "overshoot")
   model?: string; // Model name (default: "Qwen/Qwen3-VL-30B-A3B-Instruct")
   outputSchema?: Record<string, any>; // JSON schema for structured output
   onError?: (error: Error) => void;
@@ -243,7 +243,7 @@ The `onResult` callback receives a `StreamInferenceResult` object:
 interface StreamInferenceResult {
   id: string; // Result ID
   stream_id: string; // Stream ID
-  model_backend: "gemini" | "overshoot";
+  model_backend: "overshoot";
   model_name: string; // Model used
   prompt: string; // Task that was run
   result: string; // Model output (text or JSON string)
