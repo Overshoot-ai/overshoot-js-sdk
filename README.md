@@ -101,9 +101,9 @@ type StreamSource =
 
 | Model                            | Description                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
-| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Default. General-purpose vision-language model with strong performance across tasks. |
-
-More models coming soon. Contact us for specific model requirements.
+| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Default. Very fast and performant general-purpose vision-language model.             |
+| `Qwen/Qwen3-VL-8B-Instruct`      | Similar latency to 30B. Particularly good at OCR and text extraction tasks.          |
+| `OpenGVLab/InternVL3_5-30B-A3B`  | Excels at capturing visual detail. More verbose output, higher latency.              |
 
 ### Processing Parameters Explained
 
