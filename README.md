@@ -85,7 +85,7 @@ interface RealtimeVisionConfig {
     delay_seconds?: number; // Interval between inference runs (0-60, default: 1.0)
   };
 
-  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers (uses Overshoot TURN servers by default)
+  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers (uses Overshoot TURN servers by default, see RealtimeVision.ts)
 }
 ```
 
@@ -99,8 +99,8 @@ type StreamSource =
 
 ### Available Models
 
-| Model | Description |
-|-------|-------------|
+| Model                            | Description                                                                          |
+| -------------------------------- | ------------------------------------------------------------------------------------ |
 | `Qwen/Qwen3-VL-30B-A3B-Instruct` | Default. General-purpose vision-language model with strong performance across tasks. |
 
 More models coming soon. Contact us for specific model requirements.
@@ -115,9 +115,34 @@ The processing parameters control how video frames are sampled and sent to the m
 - **`delay_seconds`**: How often inference runs (e.g., 1.0 = one inference per second).
 
 **Example:** With `fps=30`, `clip_length_seconds=1.0`, `sampling_ratio=0.1`:
+
 - Each clip captures 1 second of video (30 frames at 30fps)
 - 10% of frames are sampled = 3 frames sent to the model
 - If `delay_seconds=1.0`, you get ~1 inference result per second
+
+#### Configuration by Use Case
+
+Different applications need different processing configurations:
+
+**Real-time tracking** (low latency, frequent updates):
+
+```typescript
+processing: {
+  sampling_ratio: 0.7,
+  clip_length_seconds: 0.5,
+  delay_seconds: 0.3,
+}
+```
+
+**Event detection** (monitoring for specific occurrences):
+
+```typescript
+processing: {
+  sampling_ratio: 0.2,
+  clip_length_seconds: 5.0,
+  delay_seconds: 5.0,
+}
+```
 
 ### Structured Output (JSON Schema)
 
@@ -133,11 +158,11 @@ const vision = new RealtimeVision({
     properties: {
       objects: {
         type: "array",
-        items: { type: "string" }
+        items: { type: "string" },
       },
-      count: { type: "integer" }
+      count: { type: "integer" },
     },
-    required: ["objects", "count"]
+    required: ["objects", "count"],
   },
   onResult: (result) => {
     const data = JSON.parse(result.result);
@@ -147,6 +172,8 @@ const vision = new RealtimeVision({
 ```
 
 The model will return valid JSON matching your schema. If the model cannot produce valid output, `result.ok` will be `false` and `result.error` will contain details.
+
+> **Note:** `result.result` is always a string. When using `outputSchema`, you must parse it with `JSON.parse()`.
 
 ## API Methods
 
@@ -171,6 +198,183 @@ vision.isActive(); // Check if stream is running
 Streams have a server-side lease (typically 300 seconds). The SDK automatically sends keepalive requests to maintain the connection. If the keepalive fails (e.g., network issues), the stream will stop and `onError` will be called.
 
 You don't need to manage keepalives manually - just call `start()` and the SDK handles the rest.
+
+### State and Memory
+
+The SDK does not maintain memory or state between inference calls - each frame clip is processed independently. If your application needs to track state over time (e.g., counting repetitions, detecting transitions), implement this in your `onResult` callback:
+
+```typescript
+let lastPosition = "up";
+let repCount = 0;
+
+const vision = new RealtimeVision({
+  // ...config
+  onResult: (result) => {
+    const data = JSON.parse(result.result);
+
+    // Track state transitions externally
+    if (lastPosition === "down" && data.position === "up") {
+      repCount++;
+    }
+    lastPosition = data.position;
+  },
+});
+```
+
+For result deduplication (e.g., avoiding repeated announcements), track previous results and implement cooldown logic in your application code.
+
+## Prompt Engineering
+
+Prompt quality significantly affects results. Here are some tips:
+
+**Be specific about output format:**
+
+```typescript
+prompt: "Count the people visible. Return only a number.";
+```
+
+**Include examples for complex tasks:**
+
+```typescript
+prompt: `Describe the primary action happening. Examples:
+- "Person walking left"
+- "Car turning right"
+- "Dog sitting still"`;
+```
+
+**Request minimal output for lower latency:**
+
+```typescript
+prompt: "Is there a person in frame? Answer only 'yes' or 'no'.";
+```
+
+**Provide context when needed:**
+
+```typescript
+prompt: `You are monitoring a ${locationName}. Alert if you see: ${alertConditions.join(", ")}.`;
+```
+
+**Use JSON schema for structured data:**
+
+```typescript
+prompt: "Analyze the scene",
+outputSchema: {
+  type: "object",
+  properties: {
+    description: { type: "string" },
+    alert: { type: "boolean" }
+  },
+  required: ["description", "alert"]
+}
+```
+
+> **Note:** Prompt effectiveness varies by model. Test different approaches to find what works best for your use case.
+
+## React Integration
+
+When using the SDK in React applications, ensure proper cleanup:
+
+```typescript
+import { useEffect, useRef, useState } from "react";
+import { RealtimeVision } from "@overshoot/sdk";
+
+function VisionComponent() {
+  const visionRef = useRef<RealtimeVision | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isRunning, setIsRunning] = useState(false);
+
+  const startVision = async () => {
+    const vision = new RealtimeVision({
+      apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
+      apiKey: "your-api-key",
+      prompt: "Describe what you see",
+      onResult: (result) => {
+        console.log(result.result);
+      },
+      onError: (error) => {
+        console.error("Vision error:", error);
+        setIsRunning(false);
+      },
+    });
+
+    await vision.start();
+    visionRef.current = vision;
+    setIsRunning(true);
+
+    // Attach stream to video element for preview
+    const stream = vision.getMediaStream();
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(console.error);
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      visionRef.current?.stop();
+    };
+  }, []);
+
+  return (
+    <div>
+      <video ref={videoRef} autoPlay playsInline muted />
+      <button onClick={startVision} disabled={isRunning}>
+        Start
+      </button>
+      <button onClick={() => visionRef.current?.stop()} disabled={!isRunning}>
+        Stop
+      </button>
+    </div>
+  );
+}
+```
+
+## Advanced: Custom Video Sources with StreamClient
+
+For advanced use cases like streaming from a canvas, screen capture, or other custom sources, use `StreamClient` directly:
+
+```typescript
+import { StreamClient } from "@overshoot/sdk";
+
+const client = new StreamClient({
+  baseUrl: "https://cluster1.overshoot.ai/api/v0.2",
+  apiKey: "your-api-key",
+});
+
+// Get stream from any source (canvas, screen capture, etc.)
+const canvas = document.querySelector("canvas");
+const stream = canvas.captureStream(30);
+const videoTrack = stream.getVideoTracks()[0];
+
+// Set up WebRTC connection
+const peerConnection = new RTCPeerConnection({ iceServers: [...] }); // See default ice servers in RealtimeVison.ts file
+peerConnection.addTrack(videoTrack, stream);
+
+const offer = await peerConnection.createOffer();
+await peerConnection.setLocalDescription(offer);
+
+// Create stream on server
+const response = await client.createStream({
+  webrtc: { type: "offer", sdp: peerConnection.localDescription.sdp },
+  processing: { sampling_ratio: 0.5, fps: 30, clip_length_seconds: 1.0, delay_seconds: 1.0 },
+  inference: {
+    prompt: "Analyze the content",
+    backend: "overshoot",
+    model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  },
+});
+
+await peerConnection.setRemoteDescription(response.webrtc);
+
+// Connect WebSocket for results
+const ws = client.connectWebSocket(response.stream_id);
+ws.onopen = () => ws.send(JSON.stringify({ api_key: "your-api-key" }));
+ws.onmessage = (event) => {
+  const result = JSON.parse(event.data);
+  console.log("Result:", result);
+};
+```
 
 ## Examples
 
@@ -211,26 +415,6 @@ const vision = new RealtimeVision({
 });
 
 await vision.start();
-```
-
-### Video Preview Display
-
-```typescript
-const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
-  apiKey: "your-api-key",
-  prompt: "Describe what you see",
-  onResult: (result) => console.log(result.result),
-});
-
-await vision.start();
-
-// Attach to video element for preview
-const videoElement = document.querySelector("video");
-const stream = vision.getMediaStream();
-if (stream) {
-  videoElement.srcObject = stream;
-}
 ```
 
 ### Dynamic Prompt Updates
@@ -307,7 +491,7 @@ interface StreamInferenceResult {
   model_backend: "overshoot";
   model_name: string; // Model used
   prompt: string; // Task that was run
-  result: string; // Model output (text or JSON string)
+  result: string; // Model output (always a string - parse JSON if using outputSchema)
   inference_latency_ms: number; // Model inference time
   total_latency_ms: number; // End-to-end latency
   ok: boolean; // Success status
