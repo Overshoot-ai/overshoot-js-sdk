@@ -41,8 +41,6 @@ const DEFAULTS = {
   ] as RTCIceServer[],
 } as const;
 
-console.log("defaults", DEFAULTS);
-
 /**
  * Validation constraints
  */
@@ -51,7 +49,6 @@ const CONSTRAINTS = {
   FPS: { min: 1, max: 120 },
   CLIP_LENGTH_SECONDS: { min: 0.1, max: 60 },
   DELAY_SECONDS: { min: 0, max: 60 },
-  RATING: { min: 1, max: 5 },
 } as const;
 
 /**
@@ -662,40 +659,6 @@ export class RealtimeVision {
     this.logger.info("Stopping stream");
     await this.cleanup();
     this.isRunning = false;
-  }
-
-  /**
-   * Submit feedback for the stream
-   */
-  async submitFeedback(feedback: {
-    rating: number;
-    category: string;
-    feedback?: string;
-  }): Promise<void> {
-    if (!this.streamId) {
-      throw new Error("No active stream");
-    }
-
-    if (
-      feedback.rating < CONSTRAINTS.RATING.min ||
-      feedback.rating > CONSTRAINTS.RATING.max
-    ) {
-      throw new ValidationError(
-        `rating must be between ${CONSTRAINTS.RATING.min} and ${CONSTRAINTS.RATING.max}`,
-      );
-    }
-
-    if (!feedback.category || typeof feedback.category !== "string") {
-      throw new ValidationError("category must be a non-empty string");
-    }
-
-    this.logger.debug("Submitting feedback");
-    await this.client.submitFeedback(this.streamId, {
-      rating: feedback.rating,
-      category: feedback.category,
-      feedback: feedback.feedback ?? "",
-    });
-    this.logger.info("Feedback submitted");
   }
 
   /**

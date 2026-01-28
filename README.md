@@ -1,13 +1,13 @@
 # Overshoot SDK
 
-> **⚠️ Alpha Release**: This is an alpha version (0.1.0-alpha.3). The API may change in future versions.
+> **Warning: Alpha Release**: This is an alpha version (0.1.0-alpha.3). The API may change in future versions.
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
 ## Installation
 
 ```bash
-npm install overshoot@alpha
+npm install @overshoot/sdk@alpha
 ```
 
 Or install a specific alpha version:
@@ -21,7 +21,7 @@ npm install @overshoot/sdk@0.1.0-alpha.3
 ### Camera Source
 
 ```typescript
-import { RealtimeVision } from "overshoot";
+import { RealtimeVision } from "@overshoot/sdk";
 
 const vision = new RealtimeVision({
   apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
@@ -56,6 +56,8 @@ const vision = new RealtimeVision({
 await vision.start();
 ```
 
+> **Note:** Video files automatically loop continuously until you call `stop()`.
+
 ## Configuration
 
 ### RealtimeVisionConfig
@@ -71,19 +73,19 @@ interface RealtimeVisionConfig {
   // Optional
   source?: StreamSource; // Video source (default: environment-facing camera)
   backend?: "overshoot"; // Model backend (default: "overshoot")
-  model?: string; // Model name (default: "Qwen/Qwen3-VL-30B-A3B-Instruct")
+  model?: string; // Model name (see Available Models below)
   outputSchema?: Record<string, any>; // JSON schema for structured output
   onError?: (error: Error) => void;
   debug?: boolean; // Enable debug logging (default: false)
 
   processing?: {
-    fps?: number; // Actual source frames per second (1-120)
+    fps?: number; // Source frames per second (1-120, auto-detected for cameras)
     sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.1)
-    clip_length_seconds?: number; // Size of each clip that the VLM infers on (0.1-60, default: 1.0)
-    delay_seconds?: number; // Shift between clips (0-60, default: 1.0)
+    clip_length_seconds?: number; // Duration of each clip sent to the model (0.1-60, default: 1.0)
+    delay_seconds?: number; // Interval between inference runs (0-60, default: 1.0)
   };
 
-  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers
+  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers (uses Overshoot TURN servers by default)
 }
 ```
 
@@ -94,6 +96,57 @@ type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
   | { type: "video"; file: File };
 ```
+
+### Available Models
+
+| Model | Description |
+|-------|-------------|
+| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Default. General-purpose vision-language model with strong performance across tasks. |
+
+More models coming soon. Contact us for specific model requirements.
+
+### Processing Parameters Explained
+
+The processing parameters control how video frames are sampled and sent to the model:
+
+- **`fps`**: The frame rate of your video source. Auto-detected for camera streams; defaults to 30 for video files.
+- **`sampling_ratio`**: What fraction of frames to include in each clip (0.1 = 10% of frames).
+- **`clip_length_seconds`**: Duration of video captured for each inference (e.g., 1.0 = 1 second of video).
+- **`delay_seconds`**: How often inference runs (e.g., 1.0 = one inference per second).
+
+**Example:** With `fps=30`, `clip_length_seconds=1.0`, `sampling_ratio=0.1`:
+- Each clip captures 1 second of video (30 frames at 30fps)
+- 10% of frames are sampled = 3 frames sent to the model
+- If `delay_seconds=1.0`, you get ~1 inference result per second
+
+### Structured Output (JSON Schema)
+
+Use `outputSchema` to constrain the model's output to a specific JSON structure. The schema follows [JSON Schema](https://json-schema.org/) specification.
+
+```typescript
+const vision = new RealtimeVision({
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
+  apiKey: "your-api-key",
+  prompt: "Detect objects and return structured data",
+  outputSchema: {
+    type: "object",
+    properties: {
+      objects: {
+        type: "array",
+        items: { type: "string" }
+      },
+      count: { type: "integer" }
+    },
+    required: ["objects", "count"]
+  },
+  onResult: (result) => {
+    const data = JSON.parse(result.result);
+    console.log(`Found ${data.count} objects:`, data.objects);
+  },
+});
+```
+
+The model will return valid JSON matching your schema. If the model cannot produce valid output, `result.ok` will be `false` and `result.error` will contain details.
 
 ## API Methods
 
@@ -106,10 +159,18 @@ await vision.stop(); // Stop and cleanup resources
 await vision.updatePrompt(newPrompt); // Update task while running
 
 // State access
-vision.getMediaStream(); // Get MediaStream for video preview
-vision.getStreamId(); // Get current stream ID
+vision.getMediaStream(); // Get MediaStream for video preview (null if not started)
+vision.getStreamId(); // Get current stream ID (null if not started)
 vision.isActive(); // Check if stream is running
 ```
+
+## Stream Lifecycle
+
+### Keepalive
+
+Streams have a server-side lease (typically 300 seconds). The SDK automatically sends keepalive requests to maintain the connection. If the keepalive fails (e.g., network issues), the stream will stop and `onError` will be called.
+
+You don't need to manage keepalives manually - just call `start()` and the SDK handles the rest.
 
 ## Examples
 

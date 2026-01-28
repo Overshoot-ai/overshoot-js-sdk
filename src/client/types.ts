@@ -70,22 +70,6 @@ export type StreamConfigResponse = {
   updated_at?: string;
 };
 
-export type FeedbackCreateRequest = {
-  rating: number;
-  category: string;
-  feedback?: string;
-};
-
-export type FeedbackResponse = {
-  id: string;
-  stream_id: string;
-  rating: number;
-  category: string;
-  feedback: string;
-  created_at?: string;
-  updated_at?: string;
-};
-
 export type KeepaliveResponse = {
   status: "ok";
   stream_id: string;

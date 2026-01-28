@@ -3,9 +3,6 @@ import type {
   StreamCreateResponse,
   KeepaliveResponse,
   StreamConfigResponse,
-  FeedbackCreateRequest,
-  FeedbackResponse,
-  StatusResponse,
   ErrorResponse,
 } from "./types";
 import {
@@ -133,22 +130,6 @@ export class StreamClient {
         body: JSON.stringify({ prompt }),
       },
     );
-  }
-
-  async submitFeedback(
-    streamId: string,
-    feedback: FeedbackCreateRequest,
-  ): Promise<StatusResponse> {
-    return this.request<StatusResponse>(`/streams/${streamId}/feedback`, {
-      method: "POST",
-      body: JSON.stringify(feedback),
-    });
-  }
-
-  async getAllFeedback(): Promise<FeedbackResponse[]> {
-    return this.request<FeedbackResponse[]>("/streams/feedback", {
-      method: "GET",
-    });
   }
 
   connectWebSocket(streamId: string): WebSocket {

@@ -11,8 +11,6 @@ export type {
   StreamCreateResponse,
   StreamInferenceResult,
   StreamConfigResponse,
-  FeedbackCreateRequest,
-  FeedbackResponse,
   KeepaliveResponse,
   StatusResponse,
   ErrorResponse,
