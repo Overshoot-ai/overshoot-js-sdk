@@ -188,6 +188,8 @@ export class RealtimeVision {
   private streamId: string | null = null;
   private keepaliveInterval: number | null = null;
   private videoElement: HTMLVideoElement | null = null;
+  private canvasElement: HTMLCanvasElement | null = null;
+  private canvasAnimationFrameId: number | null = null;
 
   private isRunning = false;
 
@@ -331,7 +333,41 @@ export class RealtimeVision {
         await video.play();
         this.logger.debug("Video playback started");
 
-        const stream = video.captureStream();
+        let stream: MediaStream;
+
+        // Check if captureStream is supported (Chrome, Firefox)
+        if (typeof video.captureStream === "function") {
+          this.logger.debug("Using native video.captureStream()");
+          stream = video.captureStream();
+        } else {
+          // Safari fallback: use canvas to capture the video stream
+          this.logger.debug(
+            "captureStream not supported, using canvas fallback for Safari",
+          );
+
+          const canvas = document.createElement("canvas");
+          canvas.width = video.videoWidth || 640;
+          canvas.height = video.videoHeight || 480;
+          const ctx = canvas.getContext("2d");
+
+          if (!ctx) {
+            throw new Error("Failed to get canvas 2D context");
+          }
+
+          // Draw video frames to canvas continuously
+          const drawFrame = () => {
+            if (!video.paused && !video.ended) {
+              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+              this.canvasAnimationFrameId = requestAnimationFrame(drawFrame);
+            }
+          };
+          drawFrame();
+
+          // Capture stream from canvas (30 fps)
+          stream = canvas.captureStream(30);
+          this.canvasElement = canvas;
+        }
+
         if (!stream) {
           throw new Error("Failed to capture video stream");
         }
@@ -703,6 +739,16 @@ export class RealtimeVision {
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach((track) => track.stop());
       this.mediaStream = null;
+    }
+
+    if (this.canvasAnimationFrameId) {
+      cancelAnimationFrame(this.canvasAnimationFrameId);
+      this.canvasAnimationFrameId = null;
+    }
+
+    if (this.canvasElement) {
+      this.canvasElement.remove();
+      this.canvasElement = null;
     }
 
     if (this.videoElement) {
