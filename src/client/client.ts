@@ -3,6 +3,7 @@ import type {
   StreamCreateResponse,
   KeepaliveResponse,
   StreamConfigResponse,
+  StatusResponse,
   ErrorResponse,
 } from "./types";
 import {
@@ -130,6 +131,18 @@ export class StreamClient {
         body: JSON.stringify({ prompt }),
       },
     );
+  }
+
+  /**
+   * Explicitly close a stream, triggering final billing and cleanup.
+   * - Charges for remaining streaming time since last keepalive
+   * - Closes all WebSocket connections for this stream
+   * - Cleans up server resources
+   */
+  async closeStream(streamId: string): Promise<StatusResponse> {
+    return this.request<StatusResponse>(`/streams/${streamId}`, {
+      method: "DELETE",
+    });
   }
 
   connectWebSocket(streamId: string): WebSocket {

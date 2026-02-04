@@ -4,7 +4,11 @@ export type {
   StreamSource,
   WebRtcOffer,
   WebRtcAnswer,
+  StreamMode,
+  ClipProcessingConfig,
+  FrameProcessingConfig,
   StreamProcessingConfig,
+  ModelBackend,
   StreamInferenceConfig,
   StreamClientMeta,
   StreamCreateRequest,
@@ -15,7 +19,11 @@ export type {
   StatusResponse,
   ErrorResponse,
 } from "./client/types";
-export type { RealtimeVisionConfig } from "./client/RealtimeVision";
+export type {
+  RealtimeVisionConfig,
+  ClipModeProcessing,
+  FrameModeProcessing,
+} from "./client/RealtimeVision";
 export {
   ApiError,
   UnauthorizedError,

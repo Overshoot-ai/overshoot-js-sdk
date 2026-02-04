@@ -4,19 +4,26 @@ import {
   type StreamInferenceResult,
   type StreamProcessingConfig,
   type StreamSource,
+  type StreamMode,
+  type ClipProcessingConfig,
+  type FrameProcessingConfig,
+  type ModelBackend,
 } from "./types";
 
 /**
  * Default configuration values for RealtimeVision
  */
 const DEFAULTS = {
-  BACKEND: "overshoot" as const,
+  BACKEND: "overshoot" as ModelBackend,
   MODEL: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   SOURCE: { type: "camera", cameraFacing: "environment" } as const,
+  // Clip mode defaults
   SAMPLING_RATIO: 0.1,
   CLIP_LENGTH_SECONDS: 1.0,
   DELAY_SECONDS: 1.0,
   FALLBACK_FPS: 30,
+  // Frame mode defaults
+  INTERVAL_SECONDS: 2.0,
   ICE_SERVERS: [
     {
       urls: "turn:turn.overshoot.ai:3478?transport=udp",
@@ -45,10 +52,13 @@ const DEFAULTS = {
  * Validation constraints
  */
 const CONSTRAINTS = {
+  // Clip mode constraints
   SAMPLING_RATIO: { min: 0, max: 1 },
   FPS: { min: 1, max: 120 },
   CLIP_LENGTH_SECONDS: { min: 0.1, max: 60 },
   DELAY_SECONDS: { min: 0, max: 60 },
+  // Frame mode constraints
+  INTERVAL_SECONDS: { min: 0.1, max: 60 },
 } as const;
 
 /**
@@ -78,6 +88,38 @@ class Logger {
   error(...args: any[]): void {
     console.error("[RealtimeVision]", ...args);
   }
+}
+
+/**
+ * Clip mode processing configuration
+ */
+export interface ClipModeProcessing {
+  /**
+   * Sampling ratio (0-1). Controls what fraction of frames are processed.
+   */
+  sampling_ratio?: number;
+  /**
+   * Frames per second (1-120)
+   */
+  fps?: number;
+  /**
+   * Clip length in seconds (0.1-60)
+   */
+  clip_length_seconds?: number;
+  /**
+   * Delay in seconds (0-60)
+   */
+  delay_seconds?: number;
+}
+
+/**
+ * Frame mode processing configuration
+ */
+export interface FrameModeProcessing {
+  /**
+   * Interval between frame captures in seconds (0.1-60)
+   */
+  interval_seconds?: number;
 }
 
 export interface RealtimeVisionConfig {
@@ -111,8 +153,9 @@ export interface RealtimeVisionConfig {
 
   /**
    * Model backend to use
+   * @default "overshoot"
    */
-  backend?: "overshoot";
+  backend?: ModelBackend;
 
   /**
    * Model name to use for inference
@@ -125,7 +168,7 @@ export interface RealtimeVisionConfig {
   outputSchema?: Record<string, any>;
 
   /**
-   * Called when a new inference result arrives (~1 per second)
+   * Called when a new inference result arrives
    */
   onResult: (result: StreamInferenceResult) => void;
 
@@ -135,27 +178,33 @@ export interface RealtimeVisionConfig {
   onError?: (error: Error) => void;
 
   /**
-   * Custom processing configuration
-   * All fields are optional and will use defaults if not provided
+   * Processing mode
+   * - "clip": Video clip inference with frame bundling (for motion/temporal understanding)
+   * - "frame": Single image inference at intervals (for static analysis)
+   *
+   * If not specified, mode is inferred from processing config:
+   * - If interval_seconds is present → frame mode
+   * - Otherwise → clip mode (default)
    */
-  processing?: {
-    /**
-     * Sampling ratio (0-1). Controls what fraction of frames are processed.
-     */
-    sampling_ratio?: number;
-    /**
-     * Frames per second (1-120)
-     */
-    fps?: number;
-    /**
-     * Clip length in seconds (0.1-60)
-     */
-    clip_length_seconds?: number;
-    /**
-     * Delay in seconds (0-60)
-     */
-    delay_seconds?: number;
-  };
+  mode?: StreamMode;
+
+  /**
+   * Clip mode processing configuration
+   * Used when mode is "clip" or not specified (default)
+   */
+  clipProcessing?: ClipModeProcessing;
+
+  /**
+   * Frame mode processing configuration
+   * Used when mode is "frame"
+   */
+  frameProcessing?: FrameModeProcessing;
+
+  /**
+   * @deprecated Use `clipProcessing` instead. This property will be removed in a future version.
+   * Legacy processing configuration (clip mode only)
+   */
+  processing?: ClipModeProcessing;
 
   /**
    * ICE servers for WebRTC connection
@@ -197,6 +246,14 @@ export class RealtimeVision {
     this.validateConfig(config);
     this.config = config;
     this.logger = new Logger(config.debug ?? false);
+
+    // Warn about deprecated processing property
+    if (config.processing) {
+      this.logger.warn(
+        'The "processing" config option is deprecated. Use "clipProcessing" instead.',
+      );
+    }
+
     this.client = new StreamClient({
       baseUrl: config.apiUrl,
       apiKey: config.apiKey,
@@ -219,6 +276,14 @@ export class RealtimeVision {
       throw new ValidationError("prompt is required and must be a string");
     }
 
+    if (config.mode && config.mode !== "clip" && config.mode !== "frame") {
+      throw new ValidationError('mode must be "clip" or "frame"');
+    }
+
+    if (config.backend && config.backend !== "overshoot" && config.backend !== "gemini") {
+      throw new ValidationError('backend must be "overshoot" or "gemini"');
+    }
+
     if (config.source) {
       if (config.source.type === "camera") {
         if (
@@ -238,6 +303,66 @@ export class RealtimeVision {
       }
     }
 
+    // Validate clip mode processing config
+    if (config.clipProcessing?.sampling_ratio !== undefined) {
+      const ratio = config.clipProcessing.sampling_ratio;
+      if (
+        ratio < CONSTRAINTS.SAMPLING_RATIO.min ||
+        ratio > CONSTRAINTS.SAMPLING_RATIO.max
+      ) {
+        throw new ValidationError(
+          `sampling_ratio must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}`,
+        );
+      }
+    }
+
+    if (config.clipProcessing?.fps !== undefined) {
+      const fps = config.clipProcessing.fps;
+      if (fps < CONSTRAINTS.FPS.min || fps > CONSTRAINTS.FPS.max) {
+        throw new ValidationError(
+          `fps must be between ${CONSTRAINTS.FPS.min} and ${CONSTRAINTS.FPS.max}`,
+        );
+      }
+    }
+
+    if (config.clipProcessing?.clip_length_seconds !== undefined) {
+      const clip = config.clipProcessing.clip_length_seconds;
+      if (
+        clip < CONSTRAINTS.CLIP_LENGTH_SECONDS.min ||
+        clip > CONSTRAINTS.CLIP_LENGTH_SECONDS.max
+      ) {
+        throw new ValidationError(
+          `clip_length_seconds must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}`,
+        );
+      }
+    }
+
+    if (config.clipProcessing?.delay_seconds !== undefined) {
+      const delay = config.clipProcessing.delay_seconds;
+      if (
+        delay < CONSTRAINTS.DELAY_SECONDS.min ||
+        delay > CONSTRAINTS.DELAY_SECONDS.max
+      ) {
+        throw new ValidationError(
+          `delay_seconds must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max}`,
+        );
+      }
+    }
+
+    // Validate frame mode processing config
+    if (config.frameProcessing?.interval_seconds !== undefined) {
+      const interval = config.frameProcessing.interval_seconds;
+      if (
+        interval < CONSTRAINTS.INTERVAL_SECONDS.min ||
+        interval > CONSTRAINTS.INTERVAL_SECONDS.max
+      ) {
+        throw new ValidationError(
+          `interval_seconds must be between ${CONSTRAINTS.INTERVAL_SECONDS.min} and ${CONSTRAINTS.INTERVAL_SECONDS.max}`,
+        );
+      }
+    }
+
+    // Validate deprecated processing config (same as clipProcessing)
     if (config.processing?.sampling_ratio !== undefined) {
       const ratio = config.processing.sampling_ratio;
       if (
@@ -438,18 +563,47 @@ export class RealtimeVision {
   }
 
   /**
+   * Determine the stream mode from config
+   * - If explicitly set, use that
+   * - If frameProcessing.interval_seconds is set, use frame mode
+   * - Otherwise, default to clip mode
+   */
+  private getMode(): StreamMode {
+    if (this.config.mode) {
+      return this.config.mode;
+    }
+
+    // Infer mode from processing config
+    if (this.config.frameProcessing?.interval_seconds !== undefined) {
+      return "frame";
+    }
+
+    return "clip";
+  }
+
+  /**
    * Get processing configuration with defaults applied
    */
   private getProcessingConfig(detectedFps: number): StreamProcessingConfig {
-    const userProcessing = this.config.processing || {};
+    const mode = this.getMode();
 
+    if (mode === "frame") {
+      const frameConfig = this.config.frameProcessing || {};
+      return {
+        interval_seconds:
+          frameConfig.interval_seconds ?? DEFAULTS.INTERVAL_SECONDS,
+      } as FrameProcessingConfig;
+    }
+
+    // Clip mode - use clipProcessing, fall back to deprecated processing
+    const clipConfig = this.config.clipProcessing || this.config.processing || {};
     return {
-      sampling_ratio: userProcessing.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
-      fps: userProcessing.fps ?? detectedFps,
+      sampling_ratio: clipConfig.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
+      fps: clipConfig.fps ?? detectedFps,
       clip_length_seconds:
-        userProcessing.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
-      delay_seconds: userProcessing.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
-    };
+        clipConfig.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
+      delay_seconds: clipConfig.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
+    } as ClipProcessingConfig;
   }
 
   /**
@@ -528,12 +682,14 @@ export class RealtimeVision {
       }
 
       // Create stream on server
-      this.logger.debug("Creating stream on server");
+      const mode = this.getMode();
+      this.logger.debug("Creating stream on server with mode:", mode);
       const response = await this.client.createStream({
         webrtc: {
           type: "offer",
           sdp: this.peerConnection.localDescription.sdp,
         },
+        mode,
         processing: this.getProcessingConfig(detectedFps),
         inference: {
           prompt: this.config.prompt,
@@ -720,6 +876,20 @@ export class RealtimeVision {
 
   private async cleanup(): Promise<void> {
     this.logger.debug("Cleaning up resources");
+
+    // Close stream on server (triggers final billing)
+    if (this.streamId) {
+      try {
+        await this.client.closeStream(this.streamId);
+        this.logger.debug("Stream closed on server");
+      } catch (error) {
+        // Log but don't throw - we still want to clean up local resources
+        this.logger.warn(
+          "Failed to close stream on server:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
 
     if (this.keepaliveInterval) {
       window.clearInterval(this.keepaliveInterval);
