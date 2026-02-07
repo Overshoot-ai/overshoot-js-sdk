@@ -521,49 +521,66 @@ export class RealtimeVision {
     stream: MediaStream | null,
     source: StreamSource,
   ): Promise<number> {
+    const fallback = (): number => DEFAULTS.FALLBACK_FPS;
+
     if (!stream) {
       this.logger.warn("Stream is null, using fallback FPS");
-      return DEFAULTS.FALLBACK_FPS;
+      return fallback();
     }
 
     const videoTracks = stream.getVideoTracks();
     if (!videoTracks || videoTracks.length === 0) {
       this.logger.warn("No video tracks found, using fallback FPS");
-      return DEFAULTS.FALLBACK_FPS;
+      return fallback();
     }
 
     const videoTrack = videoTracks[0];
     if (!videoTrack) {
       this.logger.warn("First video track is null, using fallback FPS");
-      return DEFAULTS.FALLBACK_FPS;
+      return fallback();
     }
 
     // For camera sources, get FPS from track settings
     if (source.type === "camera") {
       const settings = videoTrack.getSettings();
-      const fps = settings.frameRate ?? DEFAULTS.FALLBACK_FPS;
+      const raw = settings.frameRate ?? 0;
+      const fps =
+        typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
       this.logger.debug("Detected camera FPS:", fps);
-      return fps;
+      return Math.round(fps);
     }
 
-    // For video file sources, try to get FPS from video element
-    if (source.type === "video" && this.videoElement) {
-      await new Promise<void>((resolve, reject) => {
-        if (this.videoElement!.readyState >= 1) {
-          resolve();
-        } else {
-          this.videoElement!.onloadedmetadata = () => resolve();
-          this.videoElement!.onerror = () =>
-            reject(new Error("Failed to load video metadata"));
-        }
-      });
+    // For video file sources, try to get FPS from the captured stream track
+    if (source.type === "video") {
+      // Ensure video metadata is loaded before reading settings
+      if (this.videoElement) {
+        await new Promise<void>((resolve, reject) => {
+          if (this.videoElement!.readyState >= 1) {
+            resolve();
+          } else {
+            this.videoElement!.onloadedmetadata = () => resolve();
+            this.videoElement!.onerror = () =>
+              reject(new Error("Failed to load video metadata"));
+          }
+        });
+      }
 
-      // For video files, use fallback FPS or user-specified config
-      this.logger.debug("Using fallback FPS for video file");
-      return DEFAULTS.FALLBACK_FPS;
+      const settings = videoTrack.getSettings();
+      this.logger.debug("Video file settings:", settings);
+      const raw = settings.frameRate ?? 0;
+      if (typeof raw === "number" && raw > 0) {
+        this.logger.debug("Detected video file FPS:", raw);
+        return Math.round(raw);
+      }
+
+      this.logger.debug(
+        "Could not detect video file FPS, using fallback:",
+        DEFAULTS.FALLBACK_FPS,
+      );
+      return fallback();
     }
 
-    return DEFAULTS.FALLBACK_FPS;
+    return fallback();
   }
 
   /**
