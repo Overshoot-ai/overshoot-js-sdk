@@ -430,7 +430,7 @@ export class RealtimeVision {
         const video = document.createElement("video");
         video.src = URL.createObjectURL(source.file);
         video.muted = true;
-        video.loop = true;
+        video.loop = false;
         video.playsInline = true;
 
         this.logger.debug("Loading video file:", source.file.name);
