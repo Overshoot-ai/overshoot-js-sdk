@@ -119,7 +119,8 @@ interface RealtimeVisionConfig {
 type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
   | { type: "video"; file: File }
-  | { type: "livekit"; url: string; token: string };
+  | { type: "livekit"; url: string; token: string }
+  | { type: "screen" };
 ```
 
 ### Available Models
@@ -535,6 +536,10 @@ interface StreamInferenceResult {
 - Document scanning and alignment detection
 - Sports and fitness form analysis
 - Video file content analysis
+- Screen content monitoring and analysis
+- Screen reading accessibility tools
+- Tutorial and training content analysis
+- Application monitoring and testing
 
 ## Error Types
 
@@ -575,8 +580,11 @@ Requires browsers with support for:
 - MediaStream API
 - WebSocket
 - Modern JavaScript (ES2020+)
+- Screen capture requires getDisplayMedia API (desktop browsers only)
 
-Supported browsers: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
+Supported browsers:
+- Camera/Video: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
+- Screen capture: Chrome 72+, Firefox 66+, Safari 13+, Edge 79+ (desktop only)
 
 ## Feedback
 

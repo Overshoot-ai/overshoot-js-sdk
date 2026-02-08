@@ -1,7 +1,8 @@
 export type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
   | { type: "video"; file: File }
-  | { type: "livekit"; url: string; token: string };
+  | { type: "livekit"; url: string; token: string }
+  | { type: "screen" };
 
 export type WebRtcOffer = {
   type: "offer";

@@ -314,9 +314,16 @@ export class RealtimeVision {
             "livekit source token is required and must be a non-empty string",
           );
         }
+      } else if (config.source.type === "screen") {
+        // Check browser support at validation time
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          throw new ValidationError(
+            "Screen sharing is not supported in this browser. getDisplayMedia API is required.",
+          );
+        }
       } else {
         throw new ValidationError(
-          'source.type must be "camera", "video", or "livekit"',
+          'source.type must be "camera", "video", "livekit", or "screen"',
         );
       }
     }
@@ -523,6 +530,49 @@ export class RealtimeVision {
         this.videoElement = video;
         return stream;
 
+      case "screen":
+        try {
+          this.logger.debug("Requesting screen share...");
+
+          const screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 30 },
+            },
+            audio: false,
+          });
+
+          const videoTracks = screenStream.getVideoTracks();
+          if (videoTracks.length === 0) {
+            throw new Error("Screen capture stream has no video tracks");
+          }
+
+          const screenTrack = videoTracks[0];
+
+          // CRITICAL: Handle user clicking "Stop Sharing" in browser chrome
+          screenTrack.onended = () => {
+            this.logger.info("Screen sharing stopped by user");
+            this.handleFatalError(
+              new Error("Screen sharing was stopped by the user"),
+            );
+          };
+
+          this.logger.debug("Screen capture started successfully");
+          return screenStream;
+
+        } catch (error: any) {
+          // User cancelled the picker
+          if (error.name === "NotAllowedError") {
+            throw new Error(
+              "Screen sharing permission denied. User must allow screen capture to proceed.",
+            );
+          }
+          throw new Error(
+            `Failed to capture screen: ${error.message || "Unknown error"}`,
+          );
+        }
+
       default:
         throw new Error(`Unknown source type: ${(source as any).type}`);
     }
@@ -561,6 +611,16 @@ export class RealtimeVision {
       const fps =
         typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
       this.logger.debug("Detected camera FPS:", fps);
+      return Math.round(fps);
+    }
+
+    // For screen sources, get FPS from track settings (same as camera)
+    if (source.type === "screen") {
+      const settings = videoTrack.getSettings();
+      const raw = settings.frameRate ?? 0;
+      const fps =
+        typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
+      this.logger.debug("Detected screen capture FPS:", fps);
       return Math.round(fps);
     }
 
