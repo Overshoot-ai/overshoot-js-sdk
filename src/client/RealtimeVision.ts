@@ -8,6 +8,7 @@ import {
   type ClipProcessingConfig,
   type FrameProcessingConfig,
   type ModelBackend,
+  type SourceConfig,
 } from "./types";
 
 /**
@@ -302,8 +303,21 @@ export class RealtimeVision {
         if (!(config.source.file instanceof File)) {
           throw new ValidationError("video source must provide a File object");
         }
+      } else if (config.source.type === "livekit") {
+        if (!config.source.url || typeof config.source.url !== "string") {
+          throw new ValidationError(
+            "livekit source url is required and must be a non-empty string",
+          );
+        }
+        if (!config.source.token || typeof config.source.token !== "string") {
+          throw new ValidationError(
+            "livekit source token is required and must be a non-empty string",
+          );
+        }
       } else {
-        throw new ValidationError('source.type must be "camera" or "video"');
+        throw new ValidationError(
+          'source.type must be "camera", "video", or "livekit"',
+        );
       }
     }
 
@@ -630,70 +644,83 @@ export class RealtimeVision {
       const source = this.getSource();
       this.logger.debug("Starting stream with source type:", source.type);
 
-      if (source.type === "video") {
-        this.logger.debug("Video file:", {
-          name: source.file.name,
-          size: source.file.size,
-          type: source.file.type,
-        });
+      const mode = this.getMode();
+      let sourceConfig: SourceConfig;
 
-        if (!source.file || !(source.file instanceof File)) {
-          throw new Error("Invalid video file");
-        }
-      }
-
-      // Create media stream
-      this.mediaStream = await this.createMediaStream(source);
-      const videoTrack = this.mediaStream.getVideoTracks()[0];
-      if (!videoTrack) {
-        throw new Error("No video track available");
-      }
-
-      // Get FPS for the stream
-      const detectedFps = await this.getStreamFps(this.mediaStream, source);
-
-      // Set up WebRTC peer connection
-      const iceServers = this.config.iceServers ?? DEFAULTS.ICE_SERVERS;
-      this.logger.debug("Creating peer connection with ICE servers");
-      this.peerConnection = new RTCPeerConnection({ iceServers });
-
-      // Set up ICE logging
-      this.peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          this.logger.debug("ICE candidate:", {
-            type: event.candidate.type,
-            protocol: event.candidate.protocol,
+      if (source.type === "livekit") {
+        // LiveKit path: no local media or WebRTC setup needed
+        sourceConfig = { type: "livekit", url: source.url, token: source.token };
+      } else {
+        // WebRTC path: camera or video file
+        if (source.type === "video") {
+          this.logger.debug("Video file:", {
+            name: source.file.name,
+            size: source.file.size,
+            type: source.file.type,
           });
-        } else {
-          this.logger.debug("ICE gathering complete");
+
+          if (!source.file || !(source.file instanceof File)) {
+            throw new Error("Invalid video file");
+          }
         }
-      };
 
-      this.peerConnection.oniceconnectionstatechange = () => {
-        this.logger.debug(
-          "ICE connection state:",
-          this.peerConnection?.iceConnectionState,
-        );
-      };
+        // Create media stream
+        this.mediaStream = await this.createMediaStream(source);
+        const videoTrack = this.mediaStream.getVideoTracks()[0];
+        if (!videoTrack) {
+          throw new Error("No video track available");
+        }
 
-      this.peerConnection.addTrack(videoTrack, this.mediaStream);
+        // Set up WebRTC peer connection
+        const iceServers = this.config.iceServers ?? DEFAULTS.ICE_SERVERS;
+        this.logger.debug("Creating peer connection with ICE servers");
+        this.peerConnection = new RTCPeerConnection({ iceServers });
 
-      // Create and set local offer
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
+        // Set up ICE logging
+        this.peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            this.logger.debug("ICE candidate:", {
+              type: event.candidate.type,
+              protocol: event.candidate.protocol,
+            });
+          } else {
+            this.logger.debug("ICE gathering complete");
+          }
+        };
 
-      if (!this.peerConnection.localDescription) {
-        throw new Error("Failed to create local description");
+        this.peerConnection.oniceconnectionstatechange = () => {
+          this.logger.debug(
+            "ICE connection state:",
+            this.peerConnection?.iceConnectionState,
+          );
+        };
+
+        this.peerConnection.addTrack(videoTrack, this.mediaStream);
+
+        // Create and set local offer
+        const offer = await this.peerConnection.createOffer();
+        await this.peerConnection.setLocalDescription(offer);
+
+        if (!this.peerConnection.localDescription) {
+          throw new Error("Failed to create local description");
+        }
+
+        sourceConfig = {
+          type: "webrtc",
+          sdp: this.peerConnection.localDescription.sdp,
+        };
       }
+
+      // Get FPS — use fallback for LiveKit since there's no local stream
+      const detectedFps =
+        source.type === "livekit"
+          ? DEFAULTS.FALLBACK_FPS
+          : await this.getStreamFps(this.mediaStream, source);
 
       // Create stream on server
-      const mode = this.getMode();
       this.logger.debug("Creating stream on server with mode:", mode);
       const response = await this.client.createStream({
-        webrtc: {
-          type: "offer",
-          sdp: this.peerConnection.localDescription.sdp,
-        },
+        source: sourceConfig,
         mode,
         processing: this.getProcessingConfig(detectedFps),
         inference: {
@@ -709,8 +736,10 @@ export class RealtimeVision {
         has_turn_servers: !!response.turn_servers,
       });
 
-      // Set remote description
-      await this.peerConnection.setRemoteDescription(response.webrtc);
+      // Set remote description (only for WebRTC sources)
+      if (response.webrtc && this.peerConnection) {
+        await this.peerConnection.setRemoteDescription(response.webrtc);
+      }
 
       this.streamId = response.stream_id;
       this.logger.info("Stream started:", this.streamId);

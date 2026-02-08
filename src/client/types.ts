@@ -1,6 +1,7 @@
 export type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
-  | { type: "video"; file: File };
+  | { type: "video"; file: File }
+  | { type: "livekit"; url: string; token: string };
 
 export type WebRtcOffer = {
   type: "offer";
@@ -62,8 +63,12 @@ export type StreamClientMeta = {
   request_id?: string;
 };
 
+export type WebRTCSourceConfig = { type: "webrtc"; sdp: string };
+export type LiveKitSourceConfig = { type: "livekit"; url: string; token: string };
+export type SourceConfig = WebRTCSourceConfig | LiveKitSourceConfig;
+
 export type StreamCreateRequest = {
-  webrtc: WebRtcOffer;
+  source: SourceConfig;
   mode?: StreamMode;
   processing: StreamProcessingConfig;
   inference: StreamInferenceConfig;
@@ -72,7 +77,7 @@ export type StreamCreateRequest = {
 
 export type StreamCreateResponse = {
   stream_id: string;
-  webrtc: WebRtcAnswer;
+  webrtc?: WebRtcAnswer;
   lease?: {
     ttl_seconds: number;
   };

@@ -27,7 +27,7 @@ describe("StreamClient", () => {
       });
 
       const result = await client.createStream({
-        webrtc: { type: "offer", sdp: "test-sdp" },
+        source: { type: "webrtc", sdp: "test-sdp" },
         processing: { sampling_ratio: 0.5, fps: 30 },
         inference: {
           prompt: "test",
@@ -56,7 +56,7 @@ describe("StreamClient", () => {
 
       await expect(
         client.createStream({
-          webrtc: { type: "offer", sdp: "" },
+          source: { type: "webrtc", sdp: "" },
           processing: { sampling_ratio: 0.5, fps: 30 },
           inference: { prompt: "test", backend: "overshoot", model: "test" },
         }),

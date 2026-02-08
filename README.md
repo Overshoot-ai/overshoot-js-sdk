@@ -58,6 +58,30 @@ await vision.start();
 
 > **Note:** Video files automatically loop continuously until you call `stop()`.
 
+### LiveKit Source
+
+If you're on a restrictive network where direct WebRTC connections fail, you can use LiveKit as an alternative video transport. With this source type, you publish video to a LiveKit room yourself, and the SDK handles the server-side stream creation and inference results.
+
+```typescript
+const vision = new RealtimeVision({
+  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
+  apiKey: "your-api-key-here",
+  prompt: "Describe what you see",
+  source: {
+    type: "livekit",
+    url: "wss://your-livekit-server.example.com",
+    token: "your-livekit-token",
+  },
+  onResult: (result) => {
+    console.log(result.result);
+  },
+});
+
+await vision.start();
+```
+
+> **Note:** With a LiveKit source, the SDK does not create a local media stream or WebRTC peer connection. You are responsible for publishing video to the LiveKit room using the [LiveKit client SDK](https://docs.livekit.io/). The `getMediaStream()` method will return `null` for LiveKit sources.
+
 ## Configuration
 
 ### RealtimeVisionConfig
@@ -94,7 +118,8 @@ interface RealtimeVisionConfig {
 ```typescript
 type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
-  | { type: "video"; file: File };
+  | { type: "video"; file: File }
+  | { type: "livekit"; url: string; token: string };
 ```
 
 ### Available Models
@@ -356,7 +381,7 @@ await peerConnection.setLocalDescription(offer);
 
 // Create stream on server
 const response = await client.createStream({
-  webrtc: { type: "offer", sdp: peerConnection.localDescription.sdp },
+  source: { type: "webrtc", sdp: peerConnection.localDescription.sdp },
   processing: { sampling_ratio: 0.5, fps: 30, clip_length_seconds: 1.0, delay_seconds: 1.0 },
   inference: {
     prompt: "Analyze the content",
@@ -365,7 +390,9 @@ const response = await client.createStream({
   },
 });
 
-await peerConnection.setRemoteDescription(response.webrtc);
+if (response.webrtc) {
+  await peerConnection.setRemoteDescription(response.webrtc);
+}
 
 // Connect WebSocket for results
 const ws = client.connectWebSocket(response.stream_id);
