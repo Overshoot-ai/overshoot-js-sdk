@@ -1,22 +1,29 @@
 import { StreamClient } from "./client";
+import { DEFAULT_API_URL } from "./constants";
 
 import {
   type StreamInferenceResult,
   type StreamProcessingConfig,
   type StreamSource,
+  type StreamMode,
+  type ClipProcessingConfig,
+  type FrameProcessingConfig,
+  type ModelBackend,
+  type SourceConfig,
 } from "./types";
 
 /**
  * Default configuration values for RealtimeVision
  */
 const DEFAULTS = {
-  BACKEND: "overshoot" as const,
-  MODEL: "Qwen/Qwen3-VL-30B-A3B-Instruct",
-  SOURCE: { type: "camera", cameraFacing: "environment" } as const,
-  SAMPLING_RATIO: 0.1,
-  CLIP_LENGTH_SECONDS: 1.0,
-  DELAY_SECONDS: 1.0,
+  BACKEND: "overshoot" as ModelBackend,
+  // Clip mode defaults
+  SAMPLING_RATIO: 0.8,
+  CLIP_LENGTH_SECONDS: 0.5,
+  DELAY_SECONDS: 0.2,
   FALLBACK_FPS: 30,
+  // Frame mode defaults
+  INTERVAL_SECONDS: 0.2,
   ICE_SERVERS: [
     {
       urls: "turn:turn.overshoot.ai:3478?transport=udp",
@@ -45,10 +52,13 @@ const DEFAULTS = {
  * Validation constraints
  */
 const CONSTRAINTS = {
+  // Clip mode constraints
   SAMPLING_RATIO: { min: 0, max: 1 },
   FPS: { min: 1, max: 120 },
   CLIP_LENGTH_SECONDS: { min: 0.1, max: 60 },
   DELAY_SECONDS: { min: 0, max: 60 },
+  // Frame mode constraints
+  INTERVAL_SECONDS: { min: 0.1, max: 60 },
 } as const;
 
 /**
@@ -80,11 +90,44 @@ class Logger {
   }
 }
 
+/**
+ * Clip mode processing configuration
+ */
+export interface ClipModeProcessing {
+  /**
+   * Sampling ratio (0-1). Controls what fraction of frames are processed.
+   */
+  sampling_ratio?: number;
+  /**
+   * Frames per second (1-120)
+   */
+  fps?: number;
+  /**
+   * Clip length in seconds (0.1-60)
+   */
+  clip_length_seconds?: number;
+  /**
+   * Delay in seconds (0-60)
+   */
+  delay_seconds?: number;
+}
+
+/**
+ * Frame mode processing configuration
+ */
+export interface FrameModeProcessing {
+  /**
+   * Interval between frame captures in seconds (0.1-60)
+   */
+  interval_seconds?: number;
+}
+
 export interface RealtimeVisionConfig {
   /**
    * Base URL for the API (e.g., "https://api.example.com")
+   * Defaults to "https://api.overshoot.ai/" if not provided
    */
-  apiUrl: string;
+  apiUrl?: string;
 
   /**
    * API key for authentication
@@ -104,20 +147,26 @@ export interface RealtimeVisionConfig {
   prompt: string;
 
   /**
-   * Video source configuration
-   * Defaults to camera with environment facing if not specified
+   * Video source configuration (REQUIRED)
+   * Available types:
+   * - "camera": { type: "camera", cameraFacing: "user" | "environment" }
+   * - "video": { type: "video", file: File }
+   * - "screen": { type: "screen" }
+   * - "livekit": { type: "livekit", url: string, token: string }
    */
-  source?: StreamSource;
+  source: StreamSource;
 
   /**
    * Model backend to use
+   * @default "overshoot"
    */
-  backend?: "overshoot";
+  backend?: ModelBackend;
 
   /**
-   * Model name to use for inference
+   * Model name to use for inference (REQUIRED)
+   * Example: "Qwen/Qwen3-VL-30B-A3B-Instruct"
    */
-  model?: string;
+  model: string;
 
   /**
    * Optional JSON schema for structured output
@@ -125,7 +174,7 @@ export interface RealtimeVisionConfig {
   outputSchema?: Record<string, any>;
 
   /**
-   * Called when a new inference result arrives (~1 per second)
+   * Called when a new inference result arrives
    */
   onResult: (result: StreamInferenceResult) => void;
 
@@ -135,27 +184,35 @@ export interface RealtimeVisionConfig {
   onError?: (error: Error) => void;
 
   /**
-   * Custom processing configuration
-   * All fields are optional and will use defaults if not provided
+   * Processing mode
+   * - "clip": Video clip inference with frame bundling (for motion/temporal understanding)
+   * - "frame": Single image inference at intervals (for static analysis)
+   *
+   * If not specified, mode is inferred from processing config:
+   * - If interval_seconds is present → frame mode
+   * - Otherwise → clip mode (default)
    */
-  processing?: {
-    /**
-     * Sampling ratio (0-1). Controls what fraction of frames are processed.
-     */
-    sampling_ratio?: number;
-    /**
-     * Frames per second (1-120)
-     */
-    fps?: number;
-    /**
-     * Clip length in seconds (0.1-60)
-     */
-    clip_length_seconds?: number;
-    /**
-     * Delay in seconds (0-60)
-     */
-    delay_seconds?: number;
-  };
+  mode?: StreamMode;
+
+  /**
+   * Clip mode processing configuration
+   * Used when mode is "clip" or not specified (default)
+   * @default { sampling_ratio: 0.8, clip_length_seconds: 0.5, delay_seconds: 0.2 }
+   */
+  clipProcessing?: ClipModeProcessing;
+
+  /**
+   * Frame mode processing configuration
+   * Used when mode is "frame"
+   * @default { interval_seconds: 0.2 }
+   */
+  frameProcessing?: FrameModeProcessing;
+
+  /**
+   * @deprecated Use `clipProcessing` instead. This property will be removed in a future version.
+   * Legacy processing configuration (clip mode only)
+   */
+  processing?: ClipModeProcessing;
 
   /**
    * ICE servers for WebRTC connection
@@ -197,8 +254,19 @@ export class RealtimeVision {
     this.validateConfig(config);
     this.config = config;
     this.logger = new Logger(config.debug ?? false);
+
+    // Warn about deprecated processing property
+    if (config.processing) {
+      this.logger.warn(
+        'The "processing" config option is deprecated. Use "clipProcessing" instead.',
+      );
+    }
+
+    // Use provided apiUrl if it's a non-empty string, otherwise use default
+    const apiUrl = config.apiUrl?.trim() || DEFAULT_API_URL;
+
     this.client = new StreamClient({
-      baseUrl: config.apiUrl,
+      baseUrl: apiUrl,
       apiKey: config.apiKey,
     });
   }
@@ -207,8 +275,11 @@ export class RealtimeVision {
    * Validate configuration values
    */
   private validateConfig(config: RealtimeVisionConfig): void {
-    if (!config.apiUrl || typeof config.apiUrl !== "string") {
-      throw new ValidationError("apiUrl is required and must be a string");
+    // Validate apiUrl if provided
+    if (config.apiUrl !== undefined) {
+      if (typeof config.apiUrl !== "string" || config.apiUrl.trim() === "") {
+        throw new ValidationError("apiUrl must be a non-empty string");
+      }
     }
 
     if (!config.apiKey || typeof config.apiKey !== "string") {
@@ -219,6 +290,36 @@ export class RealtimeVision {
       throw new ValidationError("prompt is required and must be a string");
     }
 
+    // Validate backend if provided
+    if (
+      config.backend &&
+      config.backend !== "overshoot" &&
+      config.backend !== "gemini"
+    ) {
+      throw new ValidationError(
+        'backend must be "overshoot" or "gemini". Provided: ' + config.backend,
+      );
+    }
+
+    // Require model
+    if (!config.model || typeof config.model !== "string") {
+      throw new ValidationError(
+        "model is required and must be a non-empty string. Example: \"Qwen/Qwen3-VL-30B-A3B-Instruct\"",
+      );
+    }
+
+    // Require source
+    if (!config.source) {
+      throw new ValidationError(
+        'source is required. Available types: "camera" (with cameraFacing: "user" | "environment"), "video" (with file: File), "screen", "livekit" (with url and token)',
+      );
+    }
+
+    if (config.mode && config.mode !== "clip" && config.mode !== "frame") {
+      throw new ValidationError('mode must be "clip" or "frame"');
+    }
+
+    // Validate source type and its required fields
     if (config.source) {
       if (config.source.type === "camera") {
         if (
@@ -233,11 +334,91 @@ export class RealtimeVision {
         if (!(config.source.file instanceof File)) {
           throw new ValidationError("video source must provide a File object");
         }
+      } else if (config.source.type === "livekit") {
+        if (!config.source.url || typeof config.source.url !== "string") {
+          throw new ValidationError(
+            "livekit source url is required and must be a non-empty string",
+          );
+        }
+        if (!config.source.token || typeof config.source.token !== "string") {
+          throw new ValidationError(
+            "livekit source token is required and must be a non-empty string",
+          );
+        }
+      } else if (config.source.type === "screen") {
+        // Check browser support at validation time
+        if (!navigator.mediaDevices?.getDisplayMedia) {
+          throw new ValidationError(
+            "Screen sharing is not supported in this browser. getDisplayMedia API is required.",
+          );
+        }
       } else {
-        throw new ValidationError('source.type must be "camera" or "video"');
+        throw new ValidationError(
+          'source.type must be "camera", "video", "livekit", or "screen"',
+        );
       }
     }
 
+    // Validate clip mode processing config
+    if (config.clipProcessing?.sampling_ratio !== undefined) {
+      const ratio = config.clipProcessing.sampling_ratio;
+      if (
+        ratio < CONSTRAINTS.SAMPLING_RATIO.min ||
+        ratio > CONSTRAINTS.SAMPLING_RATIO.max
+      ) {
+        throw new ValidationError(
+          `sampling_ratio must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}`,
+        );
+      }
+    }
+
+    if (config.clipProcessing?.fps !== undefined) {
+      const fps = config.clipProcessing.fps;
+      if (fps < CONSTRAINTS.FPS.min || fps > CONSTRAINTS.FPS.max) {
+        throw new ValidationError(
+          `fps must be between ${CONSTRAINTS.FPS.min} and ${CONSTRAINTS.FPS.max}`,
+        );
+      }
+    }
+
+    if (config.clipProcessing?.clip_length_seconds !== undefined) {
+      const clip = config.clipProcessing.clip_length_seconds;
+      if (
+        clip < CONSTRAINTS.CLIP_LENGTH_SECONDS.min ||
+        clip > CONSTRAINTS.CLIP_LENGTH_SECONDS.max
+      ) {
+        throw new ValidationError(
+          `clip_length_seconds must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}`,
+        );
+      }
+    }
+
+    if (config.clipProcessing?.delay_seconds !== undefined) {
+      const delay = config.clipProcessing.delay_seconds;
+      if (
+        delay < CONSTRAINTS.DELAY_SECONDS.min ||
+        delay > CONSTRAINTS.DELAY_SECONDS.max
+      ) {
+        throw new ValidationError(
+          `delay_seconds must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max}`,
+        );
+      }
+    }
+
+    // Validate frame mode processing config
+    if (config.frameProcessing?.interval_seconds !== undefined) {
+      const interval = config.frameProcessing.interval_seconds;
+      if (
+        interval < CONSTRAINTS.INTERVAL_SECONDS.min ||
+        interval > CONSTRAINTS.INTERVAL_SECONDS.max
+      ) {
+        throw new ValidationError(
+          `interval_seconds must be between ${CONSTRAINTS.INTERVAL_SECONDS.min} and ${CONSTRAINTS.INTERVAL_SECONDS.max}`,
+        );
+      }
+    }
+
+    // Validate deprecated processing config (same as clipProcessing)
     if (config.processing?.sampling_ratio !== undefined) {
       const ratio = config.processing.sampling_ratio;
       if (
@@ -380,6 +561,49 @@ export class RealtimeVision {
         this.videoElement = video;
         return stream;
 
+      case "screen":
+        try {
+          this.logger.debug("Requesting screen share...");
+
+          const screenStream = await navigator.mediaDevices.getDisplayMedia({
+            video: {
+              width: { ideal: 1920 },
+              height: { ideal: 1080 },
+              frameRate: { ideal: 30 },
+            },
+            audio: false,
+          });
+
+          const videoTracks = screenStream.getVideoTracks();
+          if (videoTracks.length === 0) {
+            throw new Error("Screen capture stream has no video tracks");
+          }
+
+          const screenTrack = videoTracks[0];
+
+          // CRITICAL: Handle user clicking "Stop Sharing" in browser chrome
+          screenTrack.onended = () => {
+            this.logger.info("Screen sharing stopped by user");
+            this.handleFatalError(
+              new Error("Screen sharing was stopped by the user"),
+            );
+          };
+
+          this.logger.debug("Screen capture started successfully");
+          return screenStream;
+
+        } catch (error: any) {
+          // User cancelled the picker
+          if (error.name === "NotAllowedError") {
+            throw new Error(
+              "Screen sharing permission denied. User must allow screen capture to proceed.",
+            );
+          }
+          throw new Error(
+            `Failed to capture screen: ${error.message || "Unknown error"}`,
+          );
+        }
+
       default:
         throw new Error(`Unknown source type: ${(source as any).type}`);
     }
@@ -392,71 +616,129 @@ export class RealtimeVision {
     stream: MediaStream | null,
     source: StreamSource,
   ): Promise<number> {
+    const fallback = (): number => DEFAULTS.FALLBACK_FPS;
+
     if (!stream) {
       this.logger.warn("Stream is null, using fallback FPS");
-      return DEFAULTS.FALLBACK_FPS;
+      return fallback();
     }
 
     const videoTracks = stream.getVideoTracks();
     if (!videoTracks || videoTracks.length === 0) {
       this.logger.warn("No video tracks found, using fallback FPS");
-      return DEFAULTS.FALLBACK_FPS;
+      return fallback();
     }
 
     const videoTrack = videoTracks[0];
     if (!videoTrack) {
       this.logger.warn("First video track is null, using fallback FPS");
-      return DEFAULTS.FALLBACK_FPS;
+      return fallback();
     }
 
     // For camera sources, get FPS from track settings
     if (source.type === "camera") {
       const settings = videoTrack.getSettings();
-      const fps = settings.frameRate ?? DEFAULTS.FALLBACK_FPS;
+      const raw = settings.frameRate ?? 0;
+      const fps =
+        typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
       this.logger.debug("Detected camera FPS:", fps);
-      return fps;
+      return Math.round(fps);
     }
 
-    // For video file sources, try to get FPS from video element
-    if (source.type === "video" && this.videoElement) {
-      await new Promise<void>((resolve, reject) => {
-        if (this.videoElement!.readyState >= 1) {
-          resolve();
-        } else {
-          this.videoElement!.onloadedmetadata = () => resolve();
-          this.videoElement!.onerror = () =>
-            reject(new Error("Failed to load video metadata"));
-        }
-      });
-
-      // For video files, use fallback FPS or user-specified config
-      this.logger.debug("Using fallback FPS for video file");
-      return DEFAULTS.FALLBACK_FPS;
+    // For screen sources, get FPS from track settings (same as camera)
+    if (source.type === "screen") {
+      const settings = videoTrack.getSettings();
+      const raw = settings.frameRate ?? 0;
+      const fps =
+        typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
+      this.logger.debug("Detected screen capture FPS:", fps);
+      return Math.round(fps);
     }
 
-    return DEFAULTS.FALLBACK_FPS;
+    // For video file sources, try to get FPS from the captured stream track
+    if (source.type === "video") {
+      // Ensure video metadata is loaded before reading settings
+      if (this.videoElement) {
+        await new Promise<void>((resolve, reject) => {
+          if (this.videoElement!.readyState >= 1) {
+            resolve();
+          } else {
+            this.videoElement!.onloadedmetadata = () => resolve();
+            this.videoElement!.onerror = () =>
+              reject(new Error("Failed to load video metadata"));
+          }
+        });
+      }
+
+      const settings = videoTrack.getSettings();
+      this.logger.debug("Video file settings:", settings);
+      const raw = settings.frameRate ?? 0;
+      if (typeof raw === "number" && raw > 0) {
+        this.logger.debug("Detected video file FPS:", raw);
+        return Math.round(raw);
+      }
+
+      this.logger.debug(
+        "Could not detect video file FPS, using fallback:",
+        DEFAULTS.FALLBACK_FPS,
+      );
+      return fallback();
+    }
+
+    return fallback();
+  }
+
+  /**
+   * Determine the stream mode from config
+   * - If explicitly set, use that
+   * - If frameProcessing.interval_seconds is set, use frame mode
+   * - Otherwise, default to clip mode
+   */
+  private getMode(): StreamMode {
+    if (this.config.mode) {
+      return this.config.mode;
+    }
+
+    // Infer mode from processing config
+    if (this.config.frameProcessing?.interval_seconds !== undefined) {
+      return "frame";
+    }
+
+    return "clip";
   }
 
   /**
    * Get processing configuration with defaults applied
    */
   private getProcessingConfig(detectedFps: number): StreamProcessingConfig {
-    const userProcessing = this.config.processing || {};
+    const mode = this.getMode();
 
+    if (mode === "frame") {
+      const frameConfig = this.config.frameProcessing || {};
+      return {
+        interval_seconds:
+          frameConfig.interval_seconds ?? DEFAULTS.INTERVAL_SECONDS,
+      } as FrameProcessingConfig;
+    }
+
+    // Clip mode - use clipProcessing, fall back to deprecated processing
+    const clipConfig =
+      this.config.clipProcessing || this.config.processing || {};
     return {
-      sampling_ratio: userProcessing.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
-      fps: userProcessing.fps ?? detectedFps,
+      sampling_ratio: clipConfig.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
+      fps: clipConfig.fps ?? detectedFps,
       clip_length_seconds:
-        userProcessing.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
-      delay_seconds: userProcessing.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
-    };
+        clipConfig.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
+      delay_seconds: clipConfig.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
+    } as ClipProcessingConfig;
   }
 
   /**
-   * Get the effective source configuration
+   * Get the source configuration (now required, no defaults)
    */
   private getSource(): StreamSource {
-    return this.config.source ?? DEFAULTS.SOURCE;
+    // Source is now required and validated in validateConfig
+    return this.config.source!;
   }
 
   /**
@@ -471,74 +753,89 @@ export class RealtimeVision {
       const source = this.getSource();
       this.logger.debug("Starting stream with source type:", source.type);
 
-      if (source.type === "video") {
-        this.logger.debug("Video file:", {
-          name: source.file.name,
-          size: source.file.size,
-          type: source.file.type,
-        });
+      const mode = this.getMode();
+      let sourceConfig: SourceConfig;
 
-        if (!source.file || !(source.file instanceof File)) {
-          throw new Error("Invalid video file");
-        }
-      }
-
-      // Create media stream
-      this.mediaStream = await this.createMediaStream(source);
-      const videoTrack = this.mediaStream.getVideoTracks()[0];
-      if (!videoTrack) {
-        throw new Error("No video track available");
-      }
-
-      // Get FPS for the stream
-      const detectedFps = await this.getStreamFps(this.mediaStream, source);
-
-      // Set up WebRTC peer connection
-      const iceServers = this.config.iceServers ?? DEFAULTS.ICE_SERVERS;
-      this.logger.debug("Creating peer connection with ICE servers");
-      this.peerConnection = new RTCPeerConnection({ iceServers });
-
-      // Set up ICE logging
-      this.peerConnection.onicecandidate = (event) => {
-        if (event.candidate) {
-          this.logger.debug("ICE candidate:", {
-            type: event.candidate.type,
-            protocol: event.candidate.protocol,
+      if (source.type === "livekit") {
+        // LiveKit path: no local media or WebRTC setup needed
+        sourceConfig = { type: "livekit", url: source.url, token: source.token };
+      } else {
+        // WebRTC path: camera or video file
+        if (source.type === "video") {
+          this.logger.debug("Video file:", {
+            name: source.file.name,
+            size: source.file.size,
+            type: source.file.type,
           });
-        } else {
-          this.logger.debug("ICE gathering complete");
+
+          if (!source.file || !(source.file instanceof File)) {
+            throw new Error("Invalid video file");
+          }
         }
-      };
 
-      this.peerConnection.oniceconnectionstatechange = () => {
-        this.logger.debug(
-          "ICE connection state:",
-          this.peerConnection?.iceConnectionState,
-        );
-      };
+        // Create media stream
+        this.mediaStream = await this.createMediaStream(source);
+        const videoTrack = this.mediaStream.getVideoTracks()[0];
+        if (!videoTrack) {
+          throw new Error("No video track available");
+        }
 
-      this.peerConnection.addTrack(videoTrack, this.mediaStream);
+        // Set up WebRTC peer connection
+        const iceServers = this.config.iceServers ?? DEFAULTS.ICE_SERVERS;
+        this.logger.debug("Creating peer connection with ICE servers");
+        this.peerConnection = new RTCPeerConnection({ iceServers });
 
-      // Create and set local offer
-      const offer = await this.peerConnection.createOffer();
-      await this.peerConnection.setLocalDescription(offer);
+        // Set up ICE logging
+        this.peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            this.logger.debug("ICE candidate:", {
+              type: event.candidate.type,
+              protocol: event.candidate.protocol,
+            });
+          } else {
+            this.logger.debug("ICE gathering complete");
+          }
+        };
 
-      if (!this.peerConnection.localDescription) {
-        throw new Error("Failed to create local description");
+        this.peerConnection.oniceconnectionstatechange = () => {
+          this.logger.debug(
+            "ICE connection state:",
+            this.peerConnection?.iceConnectionState,
+          );
+        };
+
+        this.peerConnection.addTrack(videoTrack, this.mediaStream);
+
+        // Create and set local offer
+        const offer = await this.peerConnection.createOffer();
+        await this.peerConnection.setLocalDescription(offer);
+
+        if (!this.peerConnection.localDescription) {
+          throw new Error("Failed to create local description");
+        }
+
+        sourceConfig = {
+          type: "webrtc",
+          sdp: this.peerConnection.localDescription.sdp,
+        };
       }
+
+      // Get FPS — use fallback for LiveKit since there's no local stream
+      const detectedFps =
+        source.type === "livekit"
+          ? DEFAULTS.FALLBACK_FPS
+          : await this.getStreamFps(this.mediaStream, source);
 
       // Create stream on server
-      this.logger.debug("Creating stream on server");
+      this.logger.debug("Creating stream on server with mode:", mode);
       const response = await this.client.createStream({
-        webrtc: {
-          type: "offer",
-          sdp: this.peerConnection.localDescription.sdp,
-        },
+        source: sourceConfig,
+        mode,
         processing: this.getProcessingConfig(detectedFps),
         inference: {
           prompt: this.config.prompt,
           backend: this.config.backend ?? DEFAULTS.BACKEND,
-          model: this.config.model ?? DEFAULTS.MODEL,
+          model: this.config.model!,
           output_schema_json: this.config.outputSchema,
         },
       });
@@ -548,8 +845,10 @@ export class RealtimeVision {
         has_turn_servers: !!response.turn_servers,
       });
 
-      // Set remote description
-      await this.peerConnection.setRemoteDescription(response.webrtc);
+      // Set remote description (only for WebRTC sources)
+      if (response.webrtc && this.peerConnection) {
+        await this.peerConnection.setRemoteDescription(response.webrtc);
+      }
 
       this.streamId = response.stream_id;
       this.logger.info("Stream started:", this.streamId);
@@ -720,6 +1019,20 @@ export class RealtimeVision {
 
   private async cleanup(): Promise<void> {
     this.logger.debug("Cleaning up resources");
+
+    // Close stream on server (triggers final billing)
+    if (this.streamId) {
+      try {
+        await this.client.closeStream(this.streamId);
+        this.logger.debug("Stream closed on server");
+      } catch (error) {
+        // Log but don't throw - we still want to clean up local resources
+        this.logger.warn(
+          "Failed to close stream on server:",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
+    }
 
     if (this.keepaliveInterval) {
       window.clearInterval(this.keepaliveInterval);

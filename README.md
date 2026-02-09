@@ -18,13 +18,15 @@ npm install @overshoot/sdk@0.1.0-alpha.3
 
 ## Quick Start
 
+> **Note:** The `apiUrl` parameter is optional and defaults to `https://api.overshoot.ai/`.
+> You can omit it for standard usage or provide a custom URL for private deployments.
+
 ### Camera Source
 
 ```typescript
 import { RealtimeVision } from "@overshoot/sdk";
 
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt:
     "Read any visible text and return JSON: {text: string | null, confidence: number}",
@@ -41,7 +43,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt: "Detect all objects in the video and count them",
   source: {
@@ -58,6 +59,29 @@ await vision.start();
 
 > **Note:** Video files automatically loop continuously until you call `stop()`.
 
+### LiveKit Source
+
+If you're on a restrictive network where direct WebRTC connections fail, you can use LiveKit as an alternative video transport. With this source type, you publish video to a LiveKit room yourself, and the SDK handles the server-side stream creation and inference results.
+
+```typescript
+const vision = new RealtimeVision({
+  apiKey: "your-api-key-here",
+  prompt: "Describe what you see",
+  source: {
+    type: "livekit",
+    url: "wss://your-livekit-server.example.com",
+    token: "your-livekit-token",
+  },
+  onResult: (result) => {
+    console.log(result.result);
+  },
+});
+
+await vision.start();
+```
+
+> **Note:** With a LiveKit source, the SDK does not create a local media stream or WebRTC peer connection. You are responsible for publishing video to the LiveKit room using the [LiveKit client SDK](https://docs.livekit.io/). The `getMediaStream()` method will return `null` for LiveKit sources.
+
 ## Configuration
 
 ### RealtimeVisionConfig
@@ -65,12 +89,12 @@ await vision.start();
 ```typescript
 interface RealtimeVisionConfig {
   // Required
-  apiUrl: string; // API endpoint
   apiKey: string; // API key for authentication
   prompt: string; // Task description for the model
   onResult: (result: StreamInferenceResult) => void;
 
   // Optional
+  apiUrl?: string; // API endpoint (default: "https://api.overshoot.ai/")
   source?: StreamSource; // Video source (default: environment-facing camera)
   backend?: "overshoot"; // Model backend (default: "overshoot")
   model?: string; // Model name (see Available Models below)
@@ -94,7 +118,9 @@ interface RealtimeVisionConfig {
 ```typescript
 type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
-  | { type: "video"; file: File };
+  | { type: "video"; file: File }
+  | { type: "livekit"; url: string; token: string }
+  | { type: "screen" };
 ```
 
 ### Available Models
@@ -150,7 +176,6 @@ Use `outputSchema` to constrain the model's output to a specific JSON structure.
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects and return structured data",
   outputSchema: {
@@ -285,7 +310,6 @@ function VisionComponent() {
 
   const startVision = async () => {
     const vision = new RealtimeVision({
-      apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
       apiKey: "your-api-key",
       prompt: "Describe what you see",
       onResult: (result) => {
@@ -338,7 +362,6 @@ For advanced use cases like streaming from a canvas, screen capture, or other cu
 import { StreamClient } from "@overshoot/sdk";
 
 const client = new StreamClient({
-  baseUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
 });
 
@@ -356,7 +379,7 @@ await peerConnection.setLocalDescription(offer);
 
 // Create stream on server
 const response = await client.createStream({
-  webrtc: { type: "offer", sdp: peerConnection.localDescription.sdp },
+  source: { type: "webrtc", sdp: peerConnection.localDescription.sdp },
   processing: { sampling_ratio: 0.5, fps: 30, clip_length_seconds: 1.0, delay_seconds: 1.0 },
   inference: {
     prompt: "Analyze the content",
@@ -365,7 +388,9 @@ const response = await client.createStream({
   },
 });
 
-await peerConnection.setRemoteDescription(response.webrtc);
+if (response.webrtc) {
+  await peerConnection.setRemoteDescription(response.webrtc);
+}
 
 // Connect WebSocket for results
 const ws = client.connectWebSocket(response.stream_id);
@@ -382,7 +407,6 @@ ws.onmessage = (event) => {
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects and return JSON: {objects: string[], count: number}",
   outputSchema: {
@@ -406,7 +430,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Read all visible text in the image",
   onResult: (result) => {
@@ -421,7 +444,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Count people",
   onResult: (result) => console.log(result.result),
@@ -437,7 +459,6 @@ await vision.updatePrompt("Detect vehicles instead");
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects",
   debug: true, // Enable detailed logging
@@ -452,7 +473,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects",
   onResult: (result) => {
@@ -508,6 +528,10 @@ interface StreamInferenceResult {
 - Document scanning and alignment detection
 - Sports and fitness form analysis
 - Video file content analysis
+- Screen content monitoring and analysis
+- Screen reading accessibility tools
+- Tutorial and training content analysis
+- Application monitoring and testing
 
 ## Error Types
 
@@ -548,8 +572,11 @@ Requires browsers with support for:
 - MediaStream API
 - WebSocket
 - Modern JavaScript (ES2020+)
+- Screen capture requires getDisplayMedia API (desktop browsers only)
 
-Supported browsers: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
+Supported browsers:
+- Camera/Video: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
+- Screen capture: Chrome 72+, Firefox 66+, Safari 13+, Edge 79+ (desktop only)
 
 ## Feedback
 

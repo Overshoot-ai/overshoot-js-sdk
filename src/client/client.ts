@@ -3,6 +3,7 @@ import type {
   StreamCreateResponse,
   KeepaliveResponse,
   StreamConfigResponse,
+  StatusResponse,
   ErrorResponse,
 } from "./types";
 import {
@@ -13,9 +14,10 @@ import {
   ServerError,
   UnauthorizedError,
 } from "./errors";
+import { DEFAULT_API_URL } from "./constants";
 
 type ClientConfig = {
-  baseUrl: string;
+  baseUrl?: string;
   apiKey: string;
 };
 
@@ -28,7 +30,7 @@ export class StreamClient {
       throw new Error("apiKey is required and must be a string");
     }
 
-    this.baseUrl = config.baseUrl;
+    this.baseUrl = config.baseUrl || DEFAULT_API_URL;
     this.apiKey = config.apiKey;
   }
 
@@ -130,6 +132,18 @@ export class StreamClient {
         body: JSON.stringify({ prompt }),
       },
     );
+  }
+
+  /**
+   * Explicitly close a stream, triggering final billing and cleanup.
+   * - Charges for remaining streaming time since last keepalive
+   * - Closes all WebSocket connections for this stream
+   * - Cleans up server resources
+   */
+  async closeStream(streamId: string): Promise<StatusResponse> {
+    return this.request<StatusResponse>(`/streams/${streamId}`, {
+      method: "DELETE",
+    });
   }
 
   connectWebSocket(streamId: string): WebSocket {

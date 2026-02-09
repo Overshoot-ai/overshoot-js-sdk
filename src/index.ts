@@ -1,10 +1,18 @@
 export { StreamClient } from "./client/client";
 export { RealtimeVision } from "./client/RealtimeVision";
+export { DEFAULT_API_URL } from "./client/constants";
 export type {
   StreamSource,
   WebRtcOffer,
   WebRtcAnswer,
+  WebRTCSourceConfig,
+  LiveKitSourceConfig,
+  SourceConfig,
+  StreamMode,
+  ClipProcessingConfig,
+  FrameProcessingConfig,
   StreamProcessingConfig,
+  ModelBackend,
   StreamInferenceConfig,
   StreamClientMeta,
   StreamCreateRequest,
@@ -15,7 +23,11 @@ export type {
   StatusResponse,
   ErrorResponse,
 } from "./client/types";
-export type { RealtimeVisionConfig } from "./client/RealtimeVision";
+export type {
+  RealtimeVisionConfig,
+  ClipModeProcessing,
+  FrameModeProcessing,
+} from "./client/RealtimeVision";
 export {
   ApiError,
   UnauthorizedError,
