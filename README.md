@@ -28,8 +28,9 @@ import { RealtimeVision } from "@overshoot/sdk";
 
 const vision = new RealtimeVision({
   apiKey: "your-api-key-here",
-  prompt:
-    "Read any visible text and return JSON: {text: string | null, confidence: number}",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  prompt: "Read any visible text",
   onResult: (result) => {
     console.log(result.result);
     console.log(`Latency: ${result.total_latency_ms}ms`);
@@ -44,11 +45,9 @@ await vision.start();
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key-here",
+  source: { type: "video", file: videoFile }, // File object from <input type="file">
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   prompt: "Detect all objects in the video and count them",
-  source: {
-    type: "video",
-    file: videoFile, // File object from <input type="file">
-  },
   onResult: (result) => {
     console.log(result.result);
   },
@@ -59,6 +58,24 @@ await vision.start();
 
 > **Note:** Video files automatically loop continuously until you call `stop()`.
 
+### Screen Capture Source
+
+```typescript
+const vision = new RealtimeVision({
+  apiKey: "your-api-key-here",
+  source: { type: "screen" },
+  model: "Qwen/Qwen3-VL-8B-Instruct",
+  prompt: "Read any visible text on the screen",
+  onResult: (result) => {
+    console.log(result.result);
+  },
+});
+
+await vision.start();
+```
+
+> **Note:** Screen capture requires desktop browsers with getDisplayMedia API support. The user will be prompted to select which screen/window to share.
+
 ### LiveKit Source
 
 If you're on a restrictive network where direct WebRTC connections fail, you can use LiveKit as an alternative video transport. With this source type, you publish video to a LiveKit room yourself, and the SDK handles the server-side stream creation and inference results.
@@ -66,12 +83,13 @@ If you're on a restrictive network where direct WebRTC connections fail, you can
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key-here",
-  prompt: "Describe what you see",
   source: {
     type: "livekit",
     url: "wss://your-livekit-server.example.com",
     token: "your-livekit-token",
   },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  prompt: "Describe what you see",
   onResult: (result) => {
     console.log(result.result);
   },
@@ -90,26 +108,33 @@ await vision.start();
 interface RealtimeVisionConfig {
   // Required
   apiKey: string; // API key for authentication
+  source: StreamSource; // Video source (see StreamSource below)
+  model: string; // Model name (see Available Models below)
   prompt: string; // Task description for the model
   onResult: (result: StreamInferenceResult) => void;
 
   // Optional
   apiUrl?: string; // API endpoint (default: "https://api.overshoot.ai/")
-  source?: StreamSource; // Video source (default: environment-facing camera)
-  backend?: "overshoot"; // Model backend (default: "overshoot")
-  model?: string; // Model name (see Available Models below)
+  backend?: "overshoot" | "gemini"; // Model backend (default: "overshoot")
+  mode?: "clip" | "frame"; // Processing mode (see Processing Modes below)
   outputSchema?: Record<string, any>; // JSON schema for structured output
   onError?: (error: Error) => void;
   debug?: boolean; // Enable debug logging (default: false)
 
-  processing?: {
+  // Clip mode processing (default mode)
+  clipProcessing?: {
     fps?: number; // Source frames per second (1-120, auto-detected for cameras)
-    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.1)
-    clip_length_seconds?: number; // Duration of each clip sent to the model (0.1-60, default: 1.0)
-    delay_seconds?: number; // Interval between inference runs (0-60, default: 1.0)
+    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.8)
+    clip_length_seconds?: number; // Duration of each clip (0.1-60s, default: 0.5)
+    delay_seconds?: number; // Interval between inferences (0-60s, default: 0.2)
   };
 
-  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers (uses Overshoot TURN servers by default, see RealtimeVision.ts)
+  // Frame mode processing
+  frameProcessing?: {
+    interval_seconds?: number; // Interval between frame captures (0.1-60s, default: 0.2)
+  };
+
+  iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers (uses Overshoot TURN servers by default)
 }
 ```
 
@@ -119,54 +144,112 @@ interface RealtimeVisionConfig {
 type StreamSource =
   | { type: "camera"; cameraFacing: "user" | "environment" }
   | { type: "video"; file: File }
-  | { type: "livekit"; url: string; token: string }
-  | { type: "screen" };
+  | { type: "screen" }
+  | { type: "livekit"; url: string; token: string };
 ```
 
 ### Available Models
 
 | Model                            | Description                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
-| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Default. Very fast and performant general-purpose vision-language model.             |
+| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Very fast and performant general-purpose vision-language model.                      |
 | `Qwen/Qwen3-VL-8B-Instruct`      | Similar latency to 30B. Particularly good at OCR and text extraction tasks.          |
 | `OpenGVLab/InternVL3_5-30B-A3B`  | Excels at capturing visual detail. More verbose output, higher latency.              |
 
+### Processing Modes
+
+The SDK supports two processing modes:
+
+#### Clip Mode (Default)
+
+Processes short video clips with multiple frames, ideal for motion analysis and temporal understanding.
+
+```typescript
+const vision = new RealtimeVision({
+  // ... other config
+  mode: "clip", // Optional - this is the default
+  clipProcessing: {
+    sampling_ratio: 0.8,        // Process 80% of frames (default)
+    clip_length_seconds: 0.5,   // 0.5 second clips (default)
+    delay_seconds: 0.2,         // New clip every 0.2s (default)
+  },
+});
+```
+
+**Use cases:** Activity detection, gesture recognition, motion tracking, sports analysis
+
+#### Frame Mode
+
+Processes individual frames at regular intervals, ideal for static analysis and fast updates.
+
+```typescript
+const vision = new RealtimeVision({
+  // ... other config
+  mode: "frame",
+  frameProcessing: {
+    interval_seconds: 0.2, // Capture frame every 0.2s (default)
+  },
+});
+```
+
+**Use cases:** OCR, object detection, scene description, static monitoring
+
+> **Note:** If you don't specify a mode, the SDK defaults to clip mode. Mode is automatically inferred if you only provide `frameProcessing` config.
+
 ### Processing Parameters Explained
 
-The processing parameters control how video frames are sampled and sent to the model:
+#### Clip Mode Parameters
 
 - **`fps`**: The frame rate of your video source. Auto-detected for camera streams; defaults to 30 for video files.
-- **`sampling_ratio`**: What fraction of frames to include in each clip (0.1 = 10% of frames).
-- **`clip_length_seconds`**: Duration of video captured for each inference (e.g., 1.0 = 1 second of video).
-- **`delay_seconds`**: How often inference runs (e.g., 1.0 = one inference per second).
+- **`sampling_ratio`**: What fraction of frames to include in each clip (0.8 = 80% of frames, default).
+- **`clip_length_seconds`**: Duration of video captured for each inference (default: 0.5 seconds).
+- **`delay_seconds`**: How often inference runs (default: 0.2 seconds - 5 inferences per second).
 
-**Example:** With `fps=30`, `clip_length_seconds=1.0`, `sampling_ratio=0.1`:
+**Example with defaults:** `fps=30`, `clip_length_seconds=0.5`, `sampling_ratio=0.8`, `delay_seconds=0.2`:
 
-- Each clip captures 1 second of video (30 frames at 30fps)
-- 10% of frames are sampled = 3 frames sent to the model
-- If `delay_seconds=1.0`, you get ~1 inference result per second
+- Each clip captures 0.5 seconds of video (15 frames at 30fps)
+- 80% of frames are sampled = 12 frames sent to the model
+- New clip starts every 0.2 seconds = ~5 inference results per second
+
+#### Frame Mode Parameters
+
+- **`interval_seconds`**: Time between frame captures (default: 0.2 seconds - 5 frames per second).
+
+**Example with defaults:** `interval_seconds=0.2`:
+
+- One frame captured every 0.2 seconds
+- ~5 inference results per second
 
 #### Configuration by Use Case
 
 Different applications need different processing configurations:
 
-**Real-time tracking** (low latency, frequent updates):
+**Real-time tracking** (low latency, frequent updates) - Clip Mode:
 
 ```typescript
-processing: {
-  sampling_ratio: 0.7,
+clipProcessing: {
+  sampling_ratio: 0.8,
   clip_length_seconds: 0.5,
-  delay_seconds: 0.3,
+  delay_seconds: 0.2,
 }
 ```
 
-**Event detection** (monitoring for specific occurrences):
+**Event detection** (monitoring for specific occurrences) - Clip Mode:
 
 ```typescript
-processing: {
-  sampling_ratio: 0.2,
-  clip_length_seconds: 5.0,
-  delay_seconds: 5.0,
+clipProcessing: {
+  sampling_ratio: 0.5,
+  clip_length_seconds: 3.0,
+  delay_seconds: 2.0,
+}
+```
+
+**Fast OCR/Detection** (static analysis) - Frame Mode:
+
+```typescript
+mode: "frame",
+frameProcessing: {
+  interval_seconds: 0.5,
 }
 ```
 
@@ -177,6 +260,8 @@ Use `outputSchema` to constrain the model's output to a specific JSON structure.
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   prompt: "Detect objects and return structured data",
   outputSchema: {
     type: "object",
@@ -233,13 +318,24 @@ let lastPosition = "up";
 let repCount = 0;
 
 const vision = new RealtimeVision({
-  // ...config
+  apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "user" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  prompt: "Detect body position: up or down",
+  outputSchema: {
+    type: "object",
+    properties: {
+      position: { type: "string", enum: ["up", "down"] }
+    },
+    required: ["position"]
+  },
   onResult: (result) => {
     const data = JSON.parse(result.result);
 
     // Track state transitions externally
     if (lastPosition === "down" && data.position === "up") {
       repCount++;
+      console.log("Rep count:", repCount);
     }
     lastPosition = data.position;
   },
@@ -282,15 +378,26 @@ prompt: `You are monitoring a ${locationName}. Alert if you see: ${alertConditio
 **Use JSON schema for structured data:**
 
 ```typescript
-prompt: "Analyze the scene",
-outputSchema: {
-  type: "object",
-  properties: {
-    description: { type: "string" },
-    alert: { type: "boolean" }
+const vision = new RealtimeVision({
+  apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  prompt: "Analyze the scene",
+  outputSchema: {
+    type: "object",
+    properties: {
+      description: { type: "string" },
+      alert: { type: "boolean" }
+    },
+    required: ["description", "alert"]
   },
-  required: ["description", "alert"]
-}
+  onResult: (result) => {
+    const data = JSON.parse(result.result);
+    if (data.alert) {
+      console.log("⚠️ Alert:", data.description);
+    }
+  }
+});
 ```
 
 > **Note:** Prompt effectiveness varies by model. Test different approaches to find what works best for your use case.
@@ -311,6 +418,8 @@ function VisionComponent() {
   const startVision = async () => {
     const vision = new RealtimeVision({
       apiKey: "your-api-key",
+      source: { type: "camera", cameraFacing: "user" },
+      model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
       prompt: "Describe what you see",
       onResult: (result) => {
         console.log(result.result);
@@ -380,7 +489,13 @@ await peerConnection.setLocalDescription(offer);
 // Create stream on server
 const response = await client.createStream({
   source: { type: "webrtc", sdp: peerConnection.localDescription.sdp },
-  processing: { sampling_ratio: 0.5, fps: 30, clip_length_seconds: 1.0, delay_seconds: 1.0 },
+  mode: "clip",
+  processing: {
+    sampling_ratio: 0.8,
+    fps: 30,
+    clip_length_seconds: 0.5,
+    delay_seconds: 0.2
+  },
   inference: {
     prompt: "Analyze the content",
     backend: "overshoot",
@@ -408,6 +523,8 @@ ws.onmessage = (event) => {
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   prompt: "Detect objects and return JSON: {objects: string[], count: number}",
   outputSchema: {
     type: "object",
@@ -431,7 +548,10 @@ await vision.start();
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-8B-Instruct", // 8B is excellent for OCR
   prompt: "Read all visible text in the image",
+  mode: "frame", // Frame mode is great for OCR
   onResult: (result) => {
     console.log("Text:", result.result);
   },
@@ -445,6 +565,8 @@ await vision.start();
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   prompt: "Count people",
   onResult: (result) => console.log(result.result),
 });
@@ -460,6 +582,8 @@ await vision.updatePrompt("Detect vehicles instead");
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   prompt: "Detect objects",
   debug: true, // Enable detailed logging
   onResult: (result) => console.log(result.result),
@@ -474,6 +598,8 @@ await vision.start();
 ```typescript
 const vision = new RealtimeVision({
   apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
   prompt: "Detect objects",
   onResult: (result) => {
     if (result.ok) {
@@ -544,25 +670,6 @@ The SDK provides specific error classes for different failure modes:
 - `ServerError` - Server-side errors
 - `ApiError` - General API errors
 
-## Development
-
-```bash
-# Install dependencies
-npm install
-
-# Build
-npm run build
-
-# Test
-npm test
-npm run test:watch
-
-# Type check
-npm run type-check
-
-# Lint
-npm run lint
-```
 
 ## Browser Compatibility
 
