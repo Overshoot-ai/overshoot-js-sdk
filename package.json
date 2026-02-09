@@ -1,7 +1,7 @@
 {
   "name": "overshoot",
   "version": "2.0.0-alpha.1",
-  "description": "Overshoot SDK for real-time AI vision analysis on live video streams",
+  "description": "Real-time vision AI SDK with sub-second latency. Process any live video stream source (camera, screen share, livekit ... etc) using state-of-the-art vision language models.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
   "types": "dist/index.d.ts",
@@ -36,7 +36,15 @@
     "webrtc",
     "computer-vision",
     "machine-learning",
-    "typescript"
+    "typescript",
+    "ocr",
+    "object-detection",
+    "screen-capture",
+    "livekit",
+    "vlm",
+    "multimodal",
+    "video-analysis",
+    "inference"
   ],
   "author": "Overshoot",
   "license": "MIT",
@@ -47,7 +55,7 @@
   "bugs": {
     "url": "https://github.com/Overshoot-ai/overshoot-js-sdk/issues"
   },
-  "homepage": "https://github.com/Overshoot-ai/overshoot-js-sdk#readme",
+  "homepage": "https://overshoot.ai",
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@typescript-eslint/eslint-plugin": "^6.19.0",
