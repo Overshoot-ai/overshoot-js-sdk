@@ -27,22 +27,22 @@ const DEFAULTS = {
   INTERVAL_SECONDS: 2.0,
   ICE_SERVERS: [
     {
-      urls: "turn:dev-turn.overshoot.ai:3478?transport=udp",
+      urls: "turn:turn.overshoot.ai:3478?transport=udp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
     {
-      urls: "turn:dev-turn.overshoot.ai:3478?transport=tcp",
+      urls: "turn:turn.overshoot.ai:3478?transport=tcp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
     {
-      urls: "turns:dev-turn.overshoot.ai:443?transport=udp",
+      urls: "turns:turn.overshoot.ai:443?transport=udp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
     {
-      urls: "turns:dev-turn.overshoot.ai:443?transport=tcp",
+      urls: "turns:turn.overshoot.ai:443?transport=tcp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
