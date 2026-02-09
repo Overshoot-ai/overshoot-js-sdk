@@ -14,10 +14,16 @@ import {
 
 /**
  * Default configuration values for RealtimeVision
- * Only includes fallback FPS and ICE servers - all other values must be explicitly provided
  */
 const DEFAULTS = {
+  BACKEND: "overshoot" as ModelBackend,
+  // Clip mode defaults
+  SAMPLING_RATIO: 0.8,
+  CLIP_LENGTH_SECONDS: 0.5,
+  DELAY_SECONDS: 0.2,
   FALLBACK_FPS: 30,
+  // Frame mode defaults
+  INTERVAL_SECONDS: 0.2,
   ICE_SERVERS: [
     {
       urls: "turn:turn.overshoot.ai:3478?transport=udp",
@@ -151,10 +157,10 @@ export interface RealtimeVisionConfig {
   source: StreamSource;
 
   /**
-   * Model backend to use (REQUIRED)
-   * Available options: "overshoot", "gemini"
+   * Model backend to use
+   * @default "overshoot"
    */
-  backend: ModelBackend;
+  backend?: ModelBackend;
 
   /**
    * Model name to use for inference (REQUIRED)
@@ -189,16 +195,16 @@ export interface RealtimeVisionConfig {
   mode?: StreamMode;
 
   /**
-   * Clip mode processing configuration (REQUIRED for clip mode)
-   * Must include: sampling_ratio, clip_length_seconds, delay_seconds
+   * Clip mode processing configuration
    * Used when mode is "clip" or not specified (default)
+   * @default { sampling_ratio: 0.8, clip_length_seconds: 0.5, delay_seconds: 0.2 }
    */
   clipProcessing?: ClipModeProcessing;
 
   /**
-   * Frame mode processing configuration (REQUIRED for frame mode)
-   * Must include: interval_seconds
+   * Frame mode processing configuration
    * Used when mode is "frame"
+   * @default { interval_seconds: 0.2 }
    */
   frameProcessing?: FrameModeProcessing;
 
@@ -284,13 +290,12 @@ export class RealtimeVision {
       throw new ValidationError("prompt is required and must be a string");
     }
 
-    // Require backend
-    if (!config.backend) {
-      throw new ValidationError(
-        'backend is required. Available options: "overshoot", "gemini"',
-      );
-    }
-    if (config.backend !== "overshoot" && config.backend !== "gemini") {
+    // Validate backend if provided
+    if (
+      config.backend &&
+      config.backend !== "overshoot" &&
+      config.backend !== "gemini"
+    ) {
       throw new ValidationError(
         'backend must be "overshoot" or "gemini". Provided: ' + config.backend,
       );
@@ -703,54 +708,28 @@ export class RealtimeVision {
   }
 
   /**
-   * Get processing configuration - requires explicit values
+   * Get processing configuration with defaults applied
    */
   private getProcessingConfig(detectedFps: number): StreamProcessingConfig {
     const mode = this.getMode();
 
     if (mode === "frame") {
-      if (!this.config.frameProcessing?.interval_seconds) {
-        throw new ValidationError(
-          `frameProcessing.interval_seconds is required for frame mode. Must be between ${CONSTRAINTS.INTERVAL_SECONDS.min} and ${CONSTRAINTS.INTERVAL_SECONDS.max} seconds.`,
-        );
-      }
+      const frameConfig = this.config.frameProcessing || {};
       return {
-        interval_seconds: this.config.frameProcessing.interval_seconds,
+        interval_seconds:
+          frameConfig.interval_seconds ?? DEFAULTS.INTERVAL_SECONDS,
       } as FrameProcessingConfig;
     }
 
     // Clip mode - use clipProcessing, fall back to deprecated processing
-    const clipConfig = this.config.clipProcessing || this.config.processing;
-
-    if (!clipConfig) {
-      throw new ValidationError(
-        `clipProcessing is required for clip mode. Must include: sampling_ratio (${CONSTRAINTS.SAMPLING_RATIO.min}-${CONSTRAINTS.SAMPLING_RATIO.max}), clip_length_seconds (${CONSTRAINTS.CLIP_LENGTH_SECONDS.min}-${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}s), delay_seconds (${CONSTRAINTS.DELAY_SECONDS.min}-${CONSTRAINTS.DELAY_SECONDS.max}s)`,
-      );
-    }
-
-    if (clipConfig.sampling_ratio === undefined) {
-      throw new ValidationError(
-        `clipProcessing.sampling_ratio is required for clip mode. Must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}.`,
-      );
-    }
-
-    if (clipConfig.clip_length_seconds === undefined) {
-      throw new ValidationError(
-        `clipProcessing.clip_length_seconds is required for clip mode. Must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max} seconds.`,
-      );
-    }
-
-    if (clipConfig.delay_seconds === undefined) {
-      throw new ValidationError(
-        `clipProcessing.delay_seconds is required for clip mode. Must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max} seconds.`,
-      );
-    }
-
+    const clipConfig =
+      this.config.clipProcessing || this.config.processing || {};
     return {
-      sampling_ratio: clipConfig.sampling_ratio,
+      sampling_ratio: clipConfig.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
       fps: clipConfig.fps ?? detectedFps,
-      clip_length_seconds: clipConfig.clip_length_seconds,
-      delay_seconds: clipConfig.delay_seconds,
+      clip_length_seconds:
+        clipConfig.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
+      delay_seconds: clipConfig.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
     } as ClipProcessingConfig;
   }
 
@@ -855,7 +834,7 @@ export class RealtimeVision {
         processing: this.getProcessingConfig(detectedFps),
         inference: {
           prompt: this.config.prompt,
-          backend: this.config.backend!,
+          backend: this.config.backend ?? DEFAULTS.BACKEND,
           model: this.config.model!,
           output_schema_json: this.config.outputSchema,
         },
