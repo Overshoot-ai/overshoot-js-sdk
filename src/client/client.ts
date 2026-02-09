@@ -14,9 +14,10 @@ import {
   ServerError,
   UnauthorizedError,
 } from "./errors";
+import { DEFAULT_API_URL } from "./constants";
 
 type ClientConfig = {
-  baseUrl: string;
+  baseUrl?: string;
   apiKey: string;
 };
 
@@ -29,7 +30,7 @@ export class StreamClient {
       throw new Error("apiKey is required and must be a string");
     }
 
-    this.baseUrl = config.baseUrl;
+    this.baseUrl = config.baseUrl || DEFAULT_API_URL;
     this.apiKey = config.apiKey;
   }
 

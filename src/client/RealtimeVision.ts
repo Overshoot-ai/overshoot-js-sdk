@@ -1,4 +1,5 @@
 import { StreamClient } from "./client";
+import { DEFAULT_API_URL } from "./constants";
 
 import {
   type StreamInferenceResult,
@@ -13,18 +14,10 @@ import {
 
 /**
  * Default configuration values for RealtimeVision
+ * Only includes fallback FPS and ICE servers - all other values must be explicitly provided
  */
 const DEFAULTS = {
-  BACKEND: "overshoot" as ModelBackend,
-  MODEL: "Qwen/Qwen3-VL-30B-A3B-Instruct",
-  SOURCE: { type: "camera", cameraFacing: "environment" } as const,
-  // Clip mode defaults
-  SAMPLING_RATIO: 0.1,
-  CLIP_LENGTH_SECONDS: 1.0,
-  DELAY_SECONDS: 1.0,
   FALLBACK_FPS: 30,
-  // Frame mode defaults
-  INTERVAL_SECONDS: 2.0,
   ICE_SERVERS: [
     {
       urls: "turn:turn.overshoot.ai:3478?transport=udp",
@@ -126,8 +119,9 @@ export interface FrameModeProcessing {
 export interface RealtimeVisionConfig {
   /**
    * Base URL for the API (e.g., "https://api.example.com")
+   * Defaults to "https://api.overshoot.ai/" if not provided
    */
-  apiUrl: string;
+  apiUrl?: string;
 
   /**
    * API key for authentication
@@ -147,21 +141,26 @@ export interface RealtimeVisionConfig {
   prompt: string;
 
   /**
-   * Video source configuration
-   * Defaults to camera with environment facing if not specified
+   * Video source configuration (REQUIRED)
+   * Available types:
+   * - "camera": { type: "camera", cameraFacing: "user" | "environment" }
+   * - "video": { type: "video", file: File }
+   * - "screen": { type: "screen" }
+   * - "livekit": { type: "livekit", url: string, token: string }
    */
-  source?: StreamSource;
+  source: StreamSource;
 
   /**
-   * Model backend to use
-   * @default "overshoot"
+   * Model backend to use (REQUIRED)
+   * Available options: "overshoot", "gemini"
    */
-  backend?: ModelBackend;
+  backend: ModelBackend;
 
   /**
-   * Model name to use for inference
+   * Model name to use for inference (REQUIRED)
+   * Example: "Qwen/Qwen3-VL-30B-A3B-Instruct"
    */
-  model?: string;
+  model: string;
 
   /**
    * Optional JSON schema for structured output
@@ -190,13 +189,15 @@ export interface RealtimeVisionConfig {
   mode?: StreamMode;
 
   /**
-   * Clip mode processing configuration
+   * Clip mode processing configuration (REQUIRED for clip mode)
+   * Must include: sampling_ratio, clip_length_seconds, delay_seconds
    * Used when mode is "clip" or not specified (default)
    */
   clipProcessing?: ClipModeProcessing;
 
   /**
-   * Frame mode processing configuration
+   * Frame mode processing configuration (REQUIRED for frame mode)
+   * Must include: interval_seconds
    * Used when mode is "frame"
    */
   frameProcessing?: FrameModeProcessing;
@@ -255,8 +256,11 @@ export class RealtimeVision {
       );
     }
 
+    // Use provided apiUrl if it's a non-empty string, otherwise use default
+    const apiUrl = config.apiUrl?.trim() || DEFAULT_API_URL;
+
     this.client = new StreamClient({
-      baseUrl: config.apiUrl,
+      baseUrl: apiUrl,
       apiKey: config.apiKey,
     });
   }
@@ -265,8 +269,11 @@ export class RealtimeVision {
    * Validate configuration values
    */
   private validateConfig(config: RealtimeVisionConfig): void {
-    if (!config.apiUrl || typeof config.apiUrl !== "string") {
-      throw new ValidationError("apiUrl is required and must be a string");
+    // Validate apiUrl if provided
+    if (config.apiUrl !== undefined) {
+      if (typeof config.apiUrl !== "string" || config.apiUrl.trim() === "") {
+        throw new ValidationError("apiUrl must be a non-empty string");
+      }
     }
 
     if (!config.apiKey || typeof config.apiKey !== "string") {
@@ -277,18 +284,37 @@ export class RealtimeVision {
       throw new ValidationError("prompt is required and must be a string");
     }
 
+    // Require backend
+    if (!config.backend) {
+      throw new ValidationError(
+        'backend is required. Available options: "overshoot", "gemini"',
+      );
+    }
+    if (config.backend !== "overshoot" && config.backend !== "gemini") {
+      throw new ValidationError(
+        'backend must be "overshoot" or "gemini". Provided: ' + config.backend,
+      );
+    }
+
+    // Require model
+    if (!config.model || typeof config.model !== "string") {
+      throw new ValidationError(
+        "model is required and must be a non-empty string. Example: \"Qwen/Qwen3-VL-30B-A3B-Instruct\"",
+      );
+    }
+
+    // Require source
+    if (!config.source) {
+      throw new ValidationError(
+        'source is required. Available types: "camera" (with cameraFacing: "user" | "environment"), "video" (with file: File), "screen", "livekit" (with url and token)',
+      );
+    }
+
     if (config.mode && config.mode !== "clip" && config.mode !== "frame") {
       throw new ValidationError('mode must be "clip" or "frame"');
     }
 
-    if (
-      config.backend &&
-      config.backend !== "overshoot" &&
-      config.backend !== "gemini"
-    ) {
-      throw new ValidationError('backend must be "overshoot" or "gemini"');
-    }
-
+    // Validate source type and its required fields
     if (config.source) {
       if (config.source.type === "camera") {
         if (
@@ -677,36 +703,63 @@ export class RealtimeVision {
   }
 
   /**
-   * Get processing configuration with defaults applied
+   * Get processing configuration - requires explicit values
    */
   private getProcessingConfig(detectedFps: number): StreamProcessingConfig {
     const mode = this.getMode();
 
     if (mode === "frame") {
-      const frameConfig = this.config.frameProcessing || {};
+      if (!this.config.frameProcessing?.interval_seconds) {
+        throw new ValidationError(
+          `frameProcessing.interval_seconds is required for frame mode. Must be between ${CONSTRAINTS.INTERVAL_SECONDS.min} and ${CONSTRAINTS.INTERVAL_SECONDS.max} seconds.`,
+        );
+      }
       return {
-        interval_seconds:
-          frameConfig.interval_seconds ?? DEFAULTS.INTERVAL_SECONDS,
+        interval_seconds: this.config.frameProcessing.interval_seconds,
       } as FrameProcessingConfig;
     }
 
     // Clip mode - use clipProcessing, fall back to deprecated processing
-    const clipConfig =
-      this.config.clipProcessing || this.config.processing || {};
+    const clipConfig = this.config.clipProcessing || this.config.processing;
+
+    if (!clipConfig) {
+      throw new ValidationError(
+        `clipProcessing is required for clip mode. Must include: sampling_ratio (${CONSTRAINTS.SAMPLING_RATIO.min}-${CONSTRAINTS.SAMPLING_RATIO.max}), clip_length_seconds (${CONSTRAINTS.CLIP_LENGTH_SECONDS.min}-${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}s), delay_seconds (${CONSTRAINTS.DELAY_SECONDS.min}-${CONSTRAINTS.DELAY_SECONDS.max}s)`,
+      );
+    }
+
+    if (clipConfig.sampling_ratio === undefined) {
+      throw new ValidationError(
+        `clipProcessing.sampling_ratio is required for clip mode. Must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}.`,
+      );
+    }
+
+    if (clipConfig.clip_length_seconds === undefined) {
+      throw new ValidationError(
+        `clipProcessing.clip_length_seconds is required for clip mode. Must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max} seconds.`,
+      );
+    }
+
+    if (clipConfig.delay_seconds === undefined) {
+      throw new ValidationError(
+        `clipProcessing.delay_seconds is required for clip mode. Must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max} seconds.`,
+      );
+    }
+
     return {
-      sampling_ratio: clipConfig.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
+      sampling_ratio: clipConfig.sampling_ratio,
       fps: clipConfig.fps ?? detectedFps,
-      clip_length_seconds:
-        clipConfig.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
-      delay_seconds: clipConfig.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
+      clip_length_seconds: clipConfig.clip_length_seconds,
+      delay_seconds: clipConfig.delay_seconds,
     } as ClipProcessingConfig;
   }
 
   /**
-   * Get the effective source configuration
+   * Get the source configuration (now required, no defaults)
    */
   private getSource(): StreamSource {
-    return this.config.source ?? DEFAULTS.SOURCE;
+    // Source is now required and validated in validateConfig
+    return this.config.source!;
   }
 
   /**
@@ -802,8 +855,8 @@ export class RealtimeVision {
         processing: this.getProcessingConfig(detectedFps),
         inference: {
           prompt: this.config.prompt,
-          backend: this.config.backend ?? DEFAULTS.BACKEND,
-          model: this.config.model ?? DEFAULTS.MODEL,
+          backend: this.config.backend!,
+          model: this.config.model!,
           output_schema_json: this.config.outputSchema,
         },
       });

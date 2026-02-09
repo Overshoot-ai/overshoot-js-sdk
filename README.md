@@ -18,13 +18,15 @@ npm install @overshoot/sdk@0.1.0-alpha.3
 
 ## Quick Start
 
+> **Note:** The `apiUrl` parameter is optional and defaults to `https://api.overshoot.ai/`.
+> You can omit it for standard usage or provide a custom URL for private deployments.
+
 ### Camera Source
 
 ```typescript
 import { RealtimeVision } from "@overshoot/sdk";
 
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt:
     "Read any visible text and return JSON: {text: string | null, confidence: number}",
@@ -41,7 +43,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt: "Detect all objects in the video and count them",
   source: {
@@ -64,7 +65,6 @@ If you're on a restrictive network where direct WebRTC connections fail, you can
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key-here",
   prompt: "Describe what you see",
   source: {
@@ -89,12 +89,12 @@ await vision.start();
 ```typescript
 interface RealtimeVisionConfig {
   // Required
-  apiUrl: string; // API endpoint
   apiKey: string; // API key for authentication
   prompt: string; // Task description for the model
   onResult: (result: StreamInferenceResult) => void;
 
   // Optional
+  apiUrl?: string; // API endpoint (default: "https://api.overshoot.ai/")
   source?: StreamSource; // Video source (default: environment-facing camera)
   backend?: "overshoot"; // Model backend (default: "overshoot")
   model?: string; // Model name (see Available Models below)
@@ -111,6 +111,19 @@ interface RealtimeVisionConfig {
 
   iceServers?: RTCIceServer[]; // Custom WebRTC ICE servers (uses Overshoot TURN servers by default, see RealtimeVision.ts)
 }
+```
+
+### Custom API Endpoints
+
+For private deployments or custom clusters, override the default URL:
+
+```typescript
+const vision = new RealtimeVision({
+  apiUrl: "https://your-deployment.example.com",
+  apiKey: "your-api-key",
+  prompt: "Your task...",
+  onResult: (result) => console.log(result),
+});
 ```
 
 ### StreamSource
@@ -176,7 +189,6 @@ Use `outputSchema` to constrain the model's output to a specific JSON structure.
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects and return structured data",
   outputSchema: {
@@ -311,7 +323,6 @@ function VisionComponent() {
 
   const startVision = async () => {
     const vision = new RealtimeVision({
-      apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
       apiKey: "your-api-key",
       prompt: "Describe what you see",
       onResult: (result) => {
@@ -364,7 +375,6 @@ For advanced use cases like streaming from a canvas, screen capture, or other cu
 import { StreamClient } from "@overshoot/sdk";
 
 const client = new StreamClient({
-  baseUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
 });
 
@@ -410,7 +420,6 @@ ws.onmessage = (event) => {
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects and return JSON: {objects: string[], count: number}",
   outputSchema: {
@@ -434,7 +443,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Read all visible text in the image",
   onResult: (result) => {
@@ -449,7 +457,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Count people",
   onResult: (result) => console.log(result.result),
@@ -465,7 +472,6 @@ await vision.updatePrompt("Detect vehicles instead");
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects",
   debug: true, // Enable detailed logging
@@ -480,7 +486,6 @@ await vision.start();
 
 ```typescript
 const vision = new RealtimeVision({
-  apiUrl: "https://cluster1.overshoot.ai/api/v0.2",
   apiKey: "your-api-key",
   prompt: "Detect objects",
   onResult: (result) => {

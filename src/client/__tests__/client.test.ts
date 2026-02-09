@@ -121,4 +121,51 @@ describe("StreamClient", () => {
       expect(ws.url).toBe("wss://test.local/ws/streams/test-id");
     });
   });
+
+  describe("default baseUrl", () => {
+    it("should use default API URL when baseUrl is not provided", async () => {
+      const defaultClient = new StreamClient({
+        apiKey: "test-api-key",
+      });
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ stream_id: "test-123" }),
+      });
+
+      await defaultClient.createStream({
+        source: { type: "webrtc", sdp: "test-sdp" },
+        processing: { sampling_ratio: 0.1, fps: 30 },
+        inference: { prompt: "test", backend: "overshoot", model: "test-model" },
+      });
+
+      expect(fetch).toHaveBeenCalledWith(
+        "https://api.overshoot.ai/streams",
+        expect.any(Object),
+      );
+    });
+
+    it("should allow custom baseUrl override", async () => {
+      const customClient = new StreamClient({
+        baseUrl: "http://custom.local",
+        apiKey: "test-api-key",
+      });
+
+      global.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ stream_id: "test-456" }),
+      });
+
+      await customClient.createStream({
+        source: { type: "webrtc", sdp: "test-sdp" },
+        processing: { sampling_ratio: 0.1, fps: 30 },
+        inference: { prompt: "test", backend: "overshoot", model: "test-model" },
+      });
+
+      expect(fetch).toHaveBeenCalledWith(
+        "http://custom.local/streams",
+        expect.any(Object),
+      );
+    });
+  });
 });
