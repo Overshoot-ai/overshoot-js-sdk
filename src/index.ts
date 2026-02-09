@@ -1,5 +1,6 @@
 export { StreamClient } from "./client/client";
 export { RealtimeVision } from "./client/RealtimeVision";
+export { DEFAULT_API_URL } from "./client/constants";
 export type {
   StreamSource,
   WebRtcOffer,

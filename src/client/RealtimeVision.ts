@@ -1,4 +1,5 @@
 import { StreamClient } from "./client";
+import { DEFAULT_API_URL } from "./constants";
 
 import {
   type StreamInferenceResult,
@@ -16,33 +17,31 @@ import {
  */
 const DEFAULTS = {
   BACKEND: "overshoot" as ModelBackend,
-  MODEL: "Qwen/Qwen3-VL-30B-A3B-Instruct",
-  SOURCE: { type: "camera", cameraFacing: "environment" } as const,
   // Clip mode defaults
-  SAMPLING_RATIO: 0.1,
-  CLIP_LENGTH_SECONDS: 1.0,
-  DELAY_SECONDS: 1.0,
+  SAMPLING_RATIO: 0.8,
+  CLIP_LENGTH_SECONDS: 0.5,
+  DELAY_SECONDS: 0.2,
   FALLBACK_FPS: 30,
   // Frame mode defaults
-  INTERVAL_SECONDS: 2.0,
+  INTERVAL_SECONDS: 0.2,
   ICE_SERVERS: [
     {
-      urls: "turn:dev-turn.overshoot.ai:3478?transport=udp",
+      urls: "turn:turn.overshoot.ai:3478?transport=udp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
     {
-      urls: "turn:dev-turn.overshoot.ai:3478?transport=tcp",
+      urls: "turn:turn.overshoot.ai:3478?transport=tcp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
     {
-      urls: "turns:dev-turn.overshoot.ai:443?transport=udp",
+      urls: "turns:turn.overshoot.ai:443?transport=udp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
     {
-      urls: "turns:dev-turn.overshoot.ai:443?transport=tcp",
+      urls: "turns:turn.overshoot.ai:443?transport=tcp",
       username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
       credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
     },
@@ -126,8 +125,9 @@ export interface FrameModeProcessing {
 export interface RealtimeVisionConfig {
   /**
    * Base URL for the API (e.g., "https://api.example.com")
+   * Defaults to "https://api.overshoot.ai/" if not provided
    */
-  apiUrl: string;
+  apiUrl?: string;
 
   /**
    * API key for authentication
@@ -147,10 +147,14 @@ export interface RealtimeVisionConfig {
   prompt: string;
 
   /**
-   * Video source configuration
-   * Defaults to camera with environment facing if not specified
+   * Video source configuration (REQUIRED)
+   * Available types:
+   * - "camera": { type: "camera", cameraFacing: "user" | "environment" }
+   * - "video": { type: "video", file: File }
+   * - "screen": { type: "screen" }
+   * - "livekit": { type: "livekit", url: string, token: string }
    */
-  source?: StreamSource;
+  source: StreamSource;
 
   /**
    * Model backend to use
@@ -159,9 +163,10 @@ export interface RealtimeVisionConfig {
   backend?: ModelBackend;
 
   /**
-   * Model name to use for inference
+   * Model name to use for inference (REQUIRED)
+   * Example: "Qwen/Qwen3-VL-30B-A3B-Instruct"
    */
-  model?: string;
+  model: string;
 
   /**
    * Optional JSON schema for structured output
@@ -192,12 +197,14 @@ export interface RealtimeVisionConfig {
   /**
    * Clip mode processing configuration
    * Used when mode is "clip" or not specified (default)
+   * @default { sampling_ratio: 0.8, clip_length_seconds: 0.5, delay_seconds: 0.2 }
    */
   clipProcessing?: ClipModeProcessing;
 
   /**
    * Frame mode processing configuration
    * Used when mode is "frame"
+   * @default { interval_seconds: 0.2 }
    */
   frameProcessing?: FrameModeProcessing;
 
@@ -255,8 +262,11 @@ export class RealtimeVision {
       );
     }
 
+    // Use provided apiUrl if it's a non-empty string, otherwise use default
+    const apiUrl = config.apiUrl?.trim() || DEFAULT_API_URL;
+
     this.client = new StreamClient({
-      baseUrl: config.apiUrl,
+      baseUrl: apiUrl,
       apiKey: config.apiKey,
     });
   }
@@ -265,8 +275,11 @@ export class RealtimeVision {
    * Validate configuration values
    */
   private validateConfig(config: RealtimeVisionConfig): void {
-    if (!config.apiUrl || typeof config.apiUrl !== "string") {
-      throw new ValidationError("apiUrl is required and must be a string");
+    // Validate apiUrl if provided
+    if (config.apiUrl !== undefined) {
+      if (typeof config.apiUrl !== "string" || config.apiUrl.trim() === "") {
+        throw new ValidationError("apiUrl must be a non-empty string");
+      }
     }
 
     if (!config.apiKey || typeof config.apiKey !== "string") {
@@ -277,18 +290,36 @@ export class RealtimeVision {
       throw new ValidationError("prompt is required and must be a string");
     }
 
-    if (config.mode && config.mode !== "clip" && config.mode !== "frame") {
-      throw new ValidationError('mode must be "clip" or "frame"');
-    }
-
+    // Validate backend if provided
     if (
       config.backend &&
       config.backend !== "overshoot" &&
       config.backend !== "gemini"
     ) {
-      throw new ValidationError('backend must be "overshoot" or "gemini"');
+      throw new ValidationError(
+        'backend must be "overshoot" or "gemini". Provided: ' + config.backend,
+      );
     }
 
+    // Require model
+    if (!config.model || typeof config.model !== "string") {
+      throw new ValidationError(
+        "model is required and must be a non-empty string. Example: \"Qwen/Qwen3-VL-30B-A3B-Instruct\"",
+      );
+    }
+
+    // Require source
+    if (!config.source) {
+      throw new ValidationError(
+        'source is required. Available types: "camera" (with cameraFacing: "user" | "environment"), "video" (with file: File), "screen", "livekit" (with url and token)',
+      );
+    }
+
+    if (config.mode && config.mode !== "clip" && config.mode !== "frame") {
+      throw new ValidationError('mode must be "clip" or "frame"');
+    }
+
+    // Validate source type and its required fields
     if (config.source) {
       if (config.source.type === "camera") {
         if (
@@ -703,10 +734,11 @@ export class RealtimeVision {
   }
 
   /**
-   * Get the effective source configuration
+   * Get the source configuration (now required, no defaults)
    */
   private getSource(): StreamSource {
-    return this.config.source ?? DEFAULTS.SOURCE;
+    // Source is now required and validated in validateConfig
+    return this.config.source!;
   }
 
   /**
@@ -803,7 +835,7 @@ export class RealtimeVision {
         inference: {
           prompt: this.config.prompt,
           backend: this.config.backend ?? DEFAULTS.BACKEND,
-          model: this.config.model ?? DEFAULTS.MODEL,
+          model: this.config.model!,
           output_schema_json: this.config.outputSchema,
         },
       });
