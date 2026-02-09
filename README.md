@@ -113,19 +113,6 @@ interface RealtimeVisionConfig {
 }
 ```
 
-### Custom API Endpoints
-
-For private deployments or custom clusters, override the default URL:
-
-```typescript
-const vision = new RealtimeVision({
-  apiUrl: "https://your-deployment.example.com",
-  apiKey: "your-api-key",
-  prompt: "Your task...",
-  onResult: (result) => console.log(result),
-});
-```
-
 ### StreamSource
 
 ```typescript
