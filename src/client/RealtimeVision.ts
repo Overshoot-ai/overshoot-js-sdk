@@ -29,23 +29,23 @@ const DEFAULTS = {
   ICE_SERVERS: [
     {
       urls: "turn:turn.overshoot.ai:3478?transport=udp",
-      username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
-      credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
+      username: "overshoot",
+      credential: "overshoot",
     },
     {
       urls: "turn:turn.overshoot.ai:3478?transport=tcp",
-      username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
-      credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
+      username: "overshoot",
+      credential: "overshoot",
     },
     {
       urls: "turns:turn.overshoot.ai:443?transport=udp",
-      username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
-      credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
+      username: "overshoot",
+      credential: "overshoot",
     },
     {
       urls: "turns:turn.overshoot.ai:443?transport=tcp",
-      username: "1769538895:c66a907c-61f4-4ec2-93a6-9d6b932776bb",
-      credential: "Fu9L4CwyYZvsOLc+23psVAo3i/Y=",
+      username: "overshoot",
+      credential: "overshoot",
     },
   ] as RTCIceServer[],
 } as const;
@@ -317,7 +317,7 @@ export class RealtimeVision {
     // Require model
     if (!config.model || typeof config.model !== "string") {
       throw new ValidationError(
-        "model is required and must be a non-empty string. Example: \"Qwen/Qwen3-VL-30B-A3B-Instruct\"",
+        'model is required and must be a non-empty string. Example: "Qwen/Qwen3-VL-30B-A3B-Instruct"',
       );
     }
 
@@ -438,9 +438,7 @@ export class RealtimeVision {
         !Number.isInteger(config.maxOutputTokens) ||
         config.maxOutputTokens <= 0
       ) {
-        throw new ValidationError(
-          "maxOutputTokens must be a positive integer",
-        );
+        throw new ValidationError("maxOutputTokens must be a positive integer");
       }
     }
 
@@ -637,7 +635,9 @@ export class RealtimeVision {
           }
 
           const fps = DEFAULTS.SCREEN_CAPTURE_FPS;
-          this.logger.debug(`Screen capture canvas: ${canvasWidth}x${canvasHeight} @ ${fps}fps`);
+          this.logger.debug(
+            `Screen capture canvas: ${canvasWidth}x${canvasHeight} @ ${fps}fps`,
+          );
 
           // Draw screen frames to canvas at a fixed interval
           this.screenCanvasIntervalId = window.setInterval(() => {
@@ -655,9 +655,10 @@ export class RealtimeVision {
           this.rawScreenStream = rawScreenStream;
           this.canvasElement = canvas;
 
-          this.logger.debug("Screen capture started successfully (canvas intermediary)");
+          this.logger.debug(
+            "Screen capture started successfully (canvas intermediary)",
+          );
           return steadyStream;
-
         } catch (error: any) {
           // User cancelled the picker
           if (error.name === "NotAllowedError") {
@@ -824,7 +825,11 @@ export class RealtimeVision {
 
       if (source.type === "livekit") {
         // LiveKit path: no local media or WebRTC setup needed
-        sourceConfig = { type: "livekit", url: source.url, token: source.token };
+        sourceConfig = {
+          type: "livekit",
+          url: source.url,
+          token: source.token,
+        };
       } else {
         // WebRTC path: camera or video file
         if (source.type === "video") {
@@ -1009,9 +1014,14 @@ export class RealtimeVision {
           const error = new Error(event.reason);
           this.handleFatalError(error);
         } else {
-          this.logger.warn("WebSocket closed unexpectedly:", event.code, event.reason);
+          this.logger.warn(
+            "WebSocket closed unexpectedly:",
+            event.code,
+            event.reason,
+          );
           const error = new Error(
-            event.reason || `WebSocket closed unexpectedly (code: ${event.code})`,
+            event.reason ||
+              `WebSocket closed unexpectedly (code: ${event.code})`,
           );
           this.handleFatalError(error);
         }
