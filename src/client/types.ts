@@ -68,12 +68,12 @@ export type StreamInferenceConfig = {
 
 /**
  * Model availability status
- * - "unavailable": Model endpoint is not reachable
- * - "ready": Model is available but not yet loaded
- * - "loaded": Model is loaded and serving requests
- * - "full": Model is at throughput capacity
+ * - "unavailable": Model endpoint is not reachable (will reject requests)
+ * - "ready": Model is healthy and performing well
+ * - "degraded": Model is near capacity, expect higher latency
+ * - "saturated": Model is at capacity and will reject new streams
  */
-export type ModelStatus = "unavailable" | "ready" | "loaded" | "full";
+export type ModelStatus = "unavailable" | "ready" | "degraded" | "saturated";
 
 export type ModelInfo = {
   model: string;

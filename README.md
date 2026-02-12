@@ -151,7 +151,7 @@ type StreamSource =
 
 ### `maxOutputTokens`
 
-Caps the maximum number of tokens the model can generate per inference request. The server enforces a rate limit of **128 effective output tokens per second** per stream:
+Caps the maximum number of tokens the model can generate per inference request. To ensure low latency, the server enforces a limit of **128 effective output tokens per second** per stream:
 
 ```
 effective_tokens_per_second = max_output_tokens × requests_per_second
@@ -188,12 +188,6 @@ const vision = new RealtimeVision({
 
 ### Available Models
 
-Each model has a `status` field indicating its current availability:
-- `"unavailable"` — Model endpoint is not reachable
-- `"ready"` — Model is available but not yet loaded
-- `"loaded"` — Model is loaded and serving requests
-- `"full"` — Model is at throughput capacity
-
 | Model                            | Description                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
 | `Qwen/Qwen3-VL-30B-A3B-Instruct` | Very fast and performant general-purpose vision-language model.                      |
@@ -202,7 +196,7 @@ Each model has a `status` field indicating its current availability:
 
 ### Fetching Available Models
 
-Use `StreamClient.getModels()` to query available models and their current status:
+Use `StreamClient.getModels()` to query available models and their current status before starting a stream. You can also create a `StreamClient` alongside `RealtimeVision` just for this purpose.
 
 ```typescript
 import { StreamClient, ModelInfo } from "@overshoot/sdk";
@@ -213,14 +207,16 @@ const models: ModelInfo[] = await client.getModels();
 for (const model of models) {
   console.log(`${model.model}: ${model.status} (ready: ${model.ready})`);
 }
-
-// ModelInfo type:
-// {
-//   model: string;       // Model identifier
-//   ready: boolean;      // Whether the model is ready to serve requests
-//   status: "unavailable" | "ready" | "loaded" | "full";
-// }
 ```
+
+Each model has a `status` indicating its current load:
+
+| Status | `ready` | Meaning | Action |
+| ------ | ------- | ------- | ------ |
+| `"ready"` | `true` | Healthy, performing well | Use this model |
+| `"degraded"` | `true` | Near capacity, expect higher latency | Usable, but consider alternatives |
+| `"saturated"` | `false` | At capacity, will reject new streams | Pick a different model |
+| `"unavailable"` | `false` | Endpoint not reachable | Pick a different model |
 
 ### Processing Modes
 
@@ -371,9 +367,11 @@ vision.isActive(); // Check if stream is running
 
 ### Keepalive
 
-Streams have a server-side lease (typically 300 seconds). The SDK automatically sends keepalive requests to maintain the connection. If the keepalive fails (e.g., network issues), the stream will stop and `onError` will be called.
+Streams have a server-side lease (30 second TTL). The SDK automatically sends keepalive requests to renew it. You don't need to manage keepalives manually.
 
-You don't need to manage keepalives manually - just call `start()` and the SDK handles the rest.
+If a keepalive fails (e.g., network issues), the stream will stop and `onError` will be called. If your account runs out of credits, the keepalive returns a 402 error and the stream expires — this is terminal and requires starting a new stream after adding credits.
+
+**Network disconnects are permanent.** If the client loses connectivity for more than 30 seconds, the lease expires and the stream is destroyed. There is no automatic reconnection — you must call `start()` to create a new stream.
 
 ### State and Memory
 
@@ -725,6 +723,12 @@ interface StreamInferenceResult {
 - Screen reading accessibility tools
 - Tutorial and training content analysis
 - Application monitoring and testing
+
+## Limits & Billing
+
+- **Concurrent streams:** Maximum 5 streams per API key. Attempting to create a 6th stream returns a 429 error. Close existing streams with `vision.stop()` before starting new ones.
+- **Output token rate:** 128 effective tokens per second per stream (see [`maxOutputTokens`](#maxoutputtokens)).
+- **Billing:** Streams are billed by duration (stream time), not by number of inference requests. A stream running for 60 seconds costs the same regardless of processing interval. Billing starts at stream creation and ends when the stream is closed or expires.
 
 ## Error Types
 
