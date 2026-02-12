@@ -58,7 +58,43 @@ export type StreamInferenceConfig = {
   backend: ModelBackend;
   model: string;
   output_schema_json?: Record<string, any>;
+  /**
+   * Max tokens per inference request. If omitted, the server defaults to
+   * floor(128 × interval) where interval is delay_seconds or interval_seconds.
+   * If provided, must satisfy: max_output_tokens / interval ≤ 128.
+   */
+  max_output_tokens?: number;
 };
+
+/**
+ * Model availability status
+ * - "unavailable": Model endpoint is not reachable (will reject requests)
+ * - "ready": Model is healthy and performing well
+ * - "degraded": Model is near capacity, expect higher latency
+ * - "saturated": Model is at capacity and will reject new streams
+ */
+export type ModelStatus = "unavailable" | "ready" | "degraded" | "saturated";
+
+export type ModelInfo = {
+  model: string;
+  ready: boolean;
+  status: ModelStatus;
+};
+
+/**
+ * Reason the stream was stopped, sent by the server in the WebSocket close frame.
+ * - "client_requested": Client called closeStream() or stop()
+ * - "webrtc_disconnected": WebRTC connection dropped (video track lost)
+ * - "livekit_disconnected": LiveKit room disconnected
+ * - "lease_expired": No keepalive received within the TTL (30s)
+ * - "insufficient_credits": Account ran out of credits during keepalive
+ */
+export type StreamStopReason =
+  | "client_requested"
+  | "webrtc_disconnected"
+  | "livekit_disconnected"
+  | "lease_expired"
+  | "insufficient_credits";
 
 export type StreamClientMeta = {
   request_id?: string;
@@ -85,6 +121,14 @@ export type StreamCreateResponse = {
   turn_servers?: RTCIceServer[];
 };
 
+/**
+ * Why the model stopped generating.
+ * - "stop": Model finished naturally
+ * - "length": Hit max_output_tokens limit (output truncated)
+ * - "content_filter": Stopped due to safety/content filtering
+ */
+export type FinishReason = "stop" | "length" | "content_filter";
+
 export type StreamInferenceResult = {
   id: string;
   stream_id: string;
@@ -97,6 +141,7 @@ export type StreamInferenceResult = {
   total_latency_ms: number;
   ok: boolean;
   error: string | null;
+  finish_reason: FinishReason | null;
 };
 
 export type StreamConfigResponse = {

@@ -22,6 +22,10 @@ export type {
   KeepaliveResponse,
   StatusResponse,
   ErrorResponse,
+  ModelStatus,
+  ModelInfo,
+  StreamStopReason,
+  FinishReason,
 } from "./client/types";
 export type {
   RealtimeVisionConfig,

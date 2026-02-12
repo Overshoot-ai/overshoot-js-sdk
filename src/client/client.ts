@@ -5,6 +5,7 @@ import type {
   StreamConfigResponse,
   StatusResponse,
   ErrorResponse,
+  ModelInfo,
 } from "./types";
 import {
   ApiError,
@@ -151,6 +152,15 @@ export class StreamClient {
       .replace("http://", "ws://")
       .replace("https://", "wss://");
     return new WebSocket(`${wsUrl}/ws/streams/${streamId}`);
+  }
+
+  /**
+   * Fetch available models and their status.
+   */
+  async getModels(): Promise<ModelInfo[]> {
+    return this.request<ModelInfo[]>("/models", {
+      method: "GET",
+    });
   }
 
   /**

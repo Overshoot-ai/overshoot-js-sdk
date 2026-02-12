@@ -1,19 +1,19 @@
 # Overshoot SDK
 
-> **Warning: Alpha Release**: This is an alpha version (0.1.0-alpha.3). The API may change in future versions.
+> **Warning: Alpha Release**: This is an alpha version (2.0.0-alpha.2). The API may change in future versions.
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
 ## Installation
 
 ```bash
-npm install @overshoot/sdk@alpha
+npm install overshoot@alpha
 ```
 
 Or install a specific alpha version:
 
 ```bash
-npm install @overshoot/sdk@0.1.0-alpha.3
+npm install overshoot@2.0.0-alpha.2
 ```
 
 ## Quick Start
@@ -24,7 +24,7 @@ npm install @overshoot/sdk@0.1.0-alpha.3
 ### Camera Source
 
 ```typescript
-import { RealtimeVision } from "@overshoot/sdk";
+import { RealtimeVision } from "overshoot";
 
 const vision = new RealtimeVision({
   apiKey: "your-api-key-here",
@@ -118,6 +118,7 @@ interface RealtimeVisionConfig {
   backend?: "overshoot" | "gemini"; // Model backend (default: "overshoot")
   mode?: "clip" | "frame"; // Processing mode (see Processing Modes below)
   outputSchema?: Record<string, any>; // JSON schema for structured output
+  maxOutputTokens?: number; // Cap tokens per inference request (see below)
   onError?: (error: Error) => void;
   debug?: boolean; // Enable debug logging (default: false)
 
@@ -148,6 +149,43 @@ type StreamSource =
   | { type: "livekit"; url: string; token: string };
 ```
 
+### `maxOutputTokens`
+
+Caps the maximum number of tokens the model can generate per inference request. To ensure low latency, the server enforces a limit of **128 effective output tokens per second** per stream:
+
+```
+effective_tokens_per_second = max_output_tokens × requests_per_second
+```
+
+Where `requests_per_second` is `1 / delay_seconds` (clip mode) or `1 / interval_seconds` (frame mode).
+
+**If omitted**, the server auto-calculates the optimal value: `floor(128 × interval)`. For example, with `delay_seconds: 0.5` (2 requests/sec), the server defaults to `floor(128 × 0.5) = 64` tokens per request.
+
+**If provided**, the server validates that `max_output_tokens / interval ≤ 128`. If exceeded, the request is rejected with a 422 error.
+
+| Scenario | Interval | Requests/sec | Max allowed `maxOutputTokens` |
+| -------- | -------- | ------------ | ----------------------------- |
+| Clip mode, fast updates | 0.2s | 5 | 25 |
+| Clip mode, default | 0.5s | 2 | 64 |
+| Clip mode, slow | 1.0s | 1 | 128 |
+| Frame mode, default | 0.2s | 5 | 25 |
+| Frame mode, slow | 2.0s | 0.5 | 256 |
+| Frame mode, very slow | 5.0s | 0.2 | 640 |
+
+```typescript
+const vision = new RealtimeVision({
+  apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  prompt: "Describe what you see briefly",
+  maxOutputTokens: 100, // Must satisfy: 100 / delay_seconds ≤ 128
+  clipProcessing: {
+    delay_seconds: 1.0, // 1 request/sec → 100 tokens/sec ≤ 128 ✓
+  },
+  onResult: (result) => console.log(result.result),
+});
+```
+
 ### Available Models
 
 | Model                            | Description                                                                          |
@@ -155,6 +193,30 @@ type StreamSource =
 | `Qwen/Qwen3-VL-30B-A3B-Instruct` | Very fast and performant general-purpose vision-language model.                      |
 | `Qwen/Qwen3-VL-8B-Instruct`      | Similar latency to 30B. Particularly good at OCR and text extraction tasks.          |
 | `OpenGVLab/InternVL3_5-30B-A3B`  | Excels at capturing visual detail. More verbose output, higher latency.              |
+
+### Fetching Available Models
+
+Use `StreamClient.getModels()` to query available models and their current status before starting a stream. You can also create a `StreamClient` alongside `RealtimeVision` just for this purpose.
+
+```typescript
+import { StreamClient, ModelInfo } from "overshoot";
+
+const client = new StreamClient({ apiKey: "your-api-key" });
+const models: ModelInfo[] = await client.getModels();
+
+for (const model of models) {
+  console.log(`${model.model}: ${model.status} (ready: ${model.ready})`);
+}
+```
+
+Each model has a `status` indicating its current load:
+
+| Status | `ready` | Meaning | Action |
+| ------ | ------- | ------- | ------ |
+| `"ready"` | `true` | Healthy, performing well | Use this model |
+| `"degraded"` | `true` | Near capacity, expect higher latency | Usable, but consider alternatives |
+| `"saturated"` | `false` | At capacity, will reject new streams | Pick a different model |
+| `"unavailable"` | `false` | Endpoint not reachable | Pick a different model |
 
 ### Processing Modes
 
@@ -305,9 +367,11 @@ vision.isActive(); // Check if stream is running
 
 ### Keepalive
 
-Streams have a server-side lease (typically 300 seconds). The SDK automatically sends keepalive requests to maintain the connection. If the keepalive fails (e.g., network issues), the stream will stop and `onError` will be called.
+Streams have a server-side lease (30 second TTL). The SDK automatically sends keepalive requests to renew it. You don't need to manage keepalives manually.
 
-You don't need to manage keepalives manually - just call `start()` and the SDK handles the rest.
+If a keepalive fails (e.g., network issues), the stream will stop and `onError` will be called. If your account runs out of credits, the keepalive returns a 402 error and the stream expires — this is terminal and requires starting a new stream after adding credits.
+
+**Network disconnects are permanent.** If the client loses connectivity for more than 30 seconds, the lease expires and the stream is destroyed. There is no automatic reconnection — you must call `start()` to create a new stream.
 
 ### State and Memory
 
@@ -408,7 +472,7 @@ When using the SDK in React applications, ensure proper cleanup:
 
 ```typescript
 import { useEffect, useRef, useState } from "react";
-import { RealtimeVision } from "@overshoot/sdk";
+import { RealtimeVision } from "overshoot";
 
 function VisionComponent() {
   const visionRef = useRef<RealtimeVision | null>(null);
@@ -468,7 +532,7 @@ function VisionComponent() {
 For advanced use cases like streaming from a canvas, screen capture, or other custom sources, use `StreamClient` directly:
 
 ```typescript
-import { StreamClient } from "@overshoot/sdk";
+import { StreamClient } from "overshoot";
 
 const client = new StreamClient({
   apiKey: "your-api-key",
@@ -500,6 +564,7 @@ const response = await client.createStream({
     prompt: "Analyze the content",
     backend: "overshoot",
     model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    max_output_tokens: 25, // Optional: must satisfy max_output_tokens / delay_seconds ≤ 128
   },
 });
 
@@ -634,6 +699,7 @@ The `onResult` callback receives a `StreamInferenceResult` object:
 interface StreamInferenceResult {
   id: string; // Result ID
   stream_id: string; // Stream ID
+  mode: "clip" | "frame"; // Processing mode used
   model_backend: "overshoot";
   model_name: string; // Model used
   prompt: string; // Task that was run
@@ -642,8 +708,14 @@ interface StreamInferenceResult {
   total_latency_ms: number; // End-to-end latency
   ok: boolean; // Success status
   error: string | null; // Error message if failed
+  finish_reason: "stop" | "length" | "content_filter" | null;
 }
 ```
+
+The `finish_reason` field indicates why the model stopped generating:
+- `"stop"` — Model finished naturally
+- `"length"` — Output was truncated because it hit `maxOutputTokens`. Consider increasing the value or using a longer processing interval.
+- `"content_filter"` — Output was blocked by safety filtering
 
 ## Use Cases
 
@@ -658,6 +730,12 @@ interface StreamInferenceResult {
 - Screen reading accessibility tools
 - Tutorial and training content analysis
 - Application monitoring and testing
+
+## Limits & Billing
+
+- **Concurrent streams:** Maximum 5 streams per API key. Attempting to create a 6th stream returns a 429 error. Close existing streams with `vision.stop()` before starting new ones.
+- **Output token rate:** 128 effective tokens per second per stream (see [`maxOutputTokens`](#maxoutputtokens)).
+- **Billing:** Streams are billed by duration (stream time), not by number of inference requests. A stream running for 60 seconds costs the same regardless of processing interval. Billing starts at stream creation and ends when the stream is closed or expires.
 
 ## Error Types
 

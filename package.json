@@ -1,6 +1,6 @@
 {
   "name": "overshoot",
-  "version": "2.0.0-alpha.1",
+  "version": "2.0.0-alpha.2",
   "description": "Real-time vision AI SDK with sub-second latency. Process any live video stream source (camera, screen share, livekit ... etc) using state-of-the-art vision language models.",
   "main": "dist/index.js",
   "module": "dist/index.mjs",
