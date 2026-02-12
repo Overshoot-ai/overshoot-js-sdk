@@ -7,13 +7,13 @@ TypeScript SDK for real-time AI vision analysis on live video streams.
 ## Installation
 
 ```bash
-npm install @overshoot/sdk@alpha
+npm install overshoot@alpha
 ```
 
 Or install a specific alpha version:
 
 ```bash
-npm install @overshoot/sdk@2.0.0-alpha.2
+npm install overshoot@2.0.0-alpha.2
 ```
 
 ## Quick Start
@@ -24,7 +24,7 @@ npm install @overshoot/sdk@2.0.0-alpha.2
 ### Camera Source
 
 ```typescript
-import { RealtimeVision } from "@overshoot/sdk";
+import { RealtimeVision } from "overshoot";
 
 const vision = new RealtimeVision({
   apiKey: "your-api-key-here",
@@ -199,7 +199,7 @@ const vision = new RealtimeVision({
 Use `StreamClient.getModels()` to query available models and their current status before starting a stream. You can also create a `StreamClient` alongside `RealtimeVision` just for this purpose.
 
 ```typescript
-import { StreamClient, ModelInfo } from "@overshoot/sdk";
+import { StreamClient, ModelInfo } from "overshoot";
 
 const client = new StreamClient({ apiKey: "your-api-key" });
 const models: ModelInfo[] = await client.getModels();
@@ -472,7 +472,7 @@ When using the SDK in React applications, ensure proper cleanup:
 
 ```typescript
 import { useEffect, useRef, useState } from "react";
-import { RealtimeVision } from "@overshoot/sdk";
+import { RealtimeVision } from "overshoot";
 
 function VisionComponent() {
   const visionRef = useRef<RealtimeVision | null>(null);
@@ -532,7 +532,7 @@ function VisionComponent() {
 For advanced use cases like streaming from a canvas, screen capture, or other custom sources, use `StreamClient` directly:
 
 ```typescript
-import { StreamClient } from "@overshoot/sdk";
+import { StreamClient } from "overshoot";
 
 const client = new StreamClient({
   apiKey: "your-api-key",
