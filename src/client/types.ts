@@ -81,6 +81,21 @@ export type ModelInfo = {
   status: ModelStatus;
 };
 
+/**
+ * Reason the stream was stopped, sent by the server in the WebSocket close frame.
+ * - "client_requested": Client called closeStream() or stop()
+ * - "webrtc_disconnected": WebRTC connection dropped (video track lost)
+ * - "livekit_disconnected": LiveKit room disconnected
+ * - "lease_expired": No keepalive received within the TTL (30s)
+ * - "insufficient_credits": Account ran out of credits during keepalive
+ */
+export type StreamStopReason =
+  | "client_requested"
+  | "webrtc_disconnected"
+  | "livekit_disconnected"
+  | "lease_expired"
+  | "insufficient_credits";
+
 export type StreamClientMeta = {
   request_id?: string;
 };
@@ -106,6 +121,14 @@ export type StreamCreateResponse = {
   turn_servers?: RTCIceServer[];
 };
 
+/**
+ * Why the model stopped generating.
+ * - "stop": Model finished naturally
+ * - "length": Hit max_output_tokens limit (output truncated)
+ * - "content_filter": Stopped due to safety/content filtering
+ */
+export type FinishReason = "stop" | "length" | "content_filter";
+
 export type StreamInferenceResult = {
   id: string;
   stream_id: string;
@@ -118,6 +141,7 @@ export type StreamInferenceResult = {
   total_latency_ms: number;
   ok: boolean;
   error: string | null;
+  finish_reason: FinishReason | null;
 };
 
 export type StreamConfigResponse = {

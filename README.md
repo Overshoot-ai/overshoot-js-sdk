@@ -699,6 +699,7 @@ The `onResult` callback receives a `StreamInferenceResult` object:
 interface StreamInferenceResult {
   id: string; // Result ID
   stream_id: string; // Stream ID
+  mode: "clip" | "frame"; // Processing mode used
   model_backend: "overshoot";
   model_name: string; // Model used
   prompt: string; // Task that was run
@@ -707,8 +708,14 @@ interface StreamInferenceResult {
   total_latency_ms: number; // End-to-end latency
   ok: boolean; // Success status
   error: string | null; // Error message if failed
+  finish_reason: "stop" | "length" | "content_filter" | null;
 }
 ```
+
+The `finish_reason` field indicates why the model stopped generating:
+- `"stop"` — Model finished naturally
+- `"length"` — Output was truncated because it hit `maxOutputTokens`. Consider increasing the value or using a longer processing interval.
+- `"content_filter"` — Output was blocked by safety filtering
 
 ## Use Cases
 

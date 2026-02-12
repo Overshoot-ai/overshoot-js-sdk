@@ -24,6 +24,8 @@ const DEFAULTS = {
   FALLBACK_FPS: 30,
   // Frame mode defaults
   INTERVAL_SECONDS: 0.2,
+  // Screen capture defaults
+  SCREEN_CAPTURE_FPS: 15,
   ICE_SERVERS: [
     {
       urls: "turn:turn.overshoot.ai:3478?transport=udp",
@@ -256,6 +258,8 @@ export class RealtimeVision {
   private videoElement: HTMLVideoElement | null = null;
   private canvasElement: HTMLCanvasElement | null = null;
   private canvasAnimationFrameId: number | null = null;
+  private screenCanvasIntervalId: number | null = null;
+  private rawScreenStream: MediaStream | null = null;
 
   private isRunning = false;
 
@@ -587,21 +591,20 @@ export class RealtimeVision {
         try {
           this.logger.debug("Requesting screen share...");
 
-          const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          const rawScreenStream = await navigator.mediaDevices.getDisplayMedia({
             video: {
               width: { ideal: 1280 },
               height: { ideal: 720 },
-              frameRate: { ideal: 15, max: 15 },
             },
             audio: false,
           });
 
-          const videoTracks = screenStream.getVideoTracks();
-          if (videoTracks.length === 0) {
+          const rawVideoTracks = rawScreenStream.getVideoTracks();
+          if (rawVideoTracks.length === 0) {
             throw new Error("Screen capture stream has no video tracks");
           }
 
-          const screenTrack = videoTracks[0];
+          const screenTrack = rawVideoTracks[0];
 
           // CRITICAL: Handle user clicking "Stop Sharing" in browser chrome
           screenTrack.onended = () => {
@@ -611,8 +614,49 @@ export class RealtimeVision {
             );
           };
 
-          this.logger.debug("Screen capture started successfully");
-          return screenStream;
+          // Route through canvas for steady FPS.
+          // getDisplayMedia drops frame rate on static screens; a canvas
+          // intermediary redraws at a fixed interval to guarantee steady output.
+          const screenVideo = document.createElement("video");
+          screenVideo.srcObject = rawScreenStream;
+          screenVideo.muted = true;
+          screenVideo.playsInline = true;
+          await screenVideo.play();
+
+          const settings = screenTrack.getSettings();
+          const canvasWidth = Math.min(settings.width || 1280, 1280);
+          const canvasHeight = Math.min(settings.height || 720, 720);
+
+          const canvas = document.createElement("canvas");
+          canvas.width = canvasWidth;
+          canvas.height = canvasHeight;
+          const ctx = canvas.getContext("2d");
+
+          if (!ctx) {
+            throw new Error("Failed to get canvas 2D context");
+          }
+
+          const fps = DEFAULTS.SCREEN_CAPTURE_FPS;
+          this.logger.debug(`Screen capture canvas: ${canvasWidth}x${canvasHeight} @ ${fps}fps`);
+
+          // Draw screen frames to canvas at a fixed interval
+          this.screenCanvasIntervalId = window.setInterval(() => {
+            ctx.drawImage(screenVideo, 0, 0, canvasWidth, canvasHeight);
+          }, 1000 / fps);
+
+          // Capture steady-fps stream from canvas
+          const steadyStream = canvas.captureStream(fps);
+
+          if (!steadyStream || steadyStream.getVideoTracks().length === 0) {
+            throw new Error("Failed to capture steady stream from canvas");
+          }
+
+          // Store for cleanup
+          this.rawScreenStream = rawScreenStream;
+          this.canvasElement = canvas;
+
+          this.logger.debug("Screen capture started successfully (canvas intermediary)");
+          return steadyStream;
 
         } catch (error: any) {
           // User cancelled the picker
@@ -953,14 +997,22 @@ export class RealtimeVision {
     this.webSocket.onclose = (event) => {
       if (this.isRunning) {
         if (event.code === 1008) {
-          this.logger.error("WebSocket authentication failed");
+          this.logger.error("WebSocket authentication failed:", event.reason);
           const error = new Error(
-            "WebSocket authentication failed: Invalid or revoked API key",
+            `WebSocket authentication failed: ${event.reason || "Invalid or revoked API key"}`,
           );
           this.handleFatalError(error);
+        } else if (event.code === 1001 && event.reason) {
+          // Server-initiated stream closure with a reason
+          // e.g. "stream ended: lease_expired", "stream ended: webrtc_disconnected"
+          this.logger.info("Stream ended:", event.reason);
+          const error = new Error(event.reason);
+          this.handleFatalError(error);
         } else {
-          this.logger.warn("WebSocket closed unexpectedly:", event.code);
-          const error = new Error("WebSocket closed unexpectedly");
+          this.logger.warn("WebSocket closed unexpectedly:", event.code, event.reason);
+          const error = new Error(
+            event.reason || `WebSocket closed unexpectedly (code: ${event.code})`,
+          );
           this.handleFatalError(error);
         }
       } else {
@@ -1082,6 +1134,16 @@ export class RealtimeVision {
     if (this.canvasAnimationFrameId) {
       cancelAnimationFrame(this.canvasAnimationFrameId);
       this.canvasAnimationFrameId = null;
+    }
+
+    if (this.screenCanvasIntervalId) {
+      window.clearInterval(this.screenCanvasIntervalId);
+      this.screenCanvasIntervalId = null;
+    }
+
+    if (this.rawScreenStream) {
+      this.rawScreenStream.getTracks().forEach((track) => track.stop());
+      this.rawScreenStream = null;
     }
 
     if (this.canvasElement) {
