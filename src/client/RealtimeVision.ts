@@ -221,6 +221,15 @@ export interface RealtimeVisionConfig {
   iceServers?: RTCIceServer[];
 
   /**
+   * Maximum number of output tokens per inference request.
+   * If omitted, the server auto-calculates it as floor(128 × interval), where
+   * interval is delay_seconds (clip mode) or interval_seconds (frame mode).
+   * If provided, the server validates that max_output_tokens / interval ≤ 128
+   * (the effective output token rate limit). Exceeding this returns a 422 error.
+   */
+  maxOutputTokens?: number;
+
+  /**
    * Enable debug logging
    * @default false
    */
@@ -414,6 +423,19 @@ export class RealtimeVision {
       ) {
         throw new ValidationError(
           `interval_seconds must be between ${CONSTRAINTS.INTERVAL_SECONDS.min} and ${CONSTRAINTS.INTERVAL_SECONDS.max}`,
+        );
+      }
+    }
+
+    // Validate maxOutputTokens if provided
+    if (config.maxOutputTokens !== undefined) {
+      if (
+        typeof config.maxOutputTokens !== "number" ||
+        !Number.isInteger(config.maxOutputTokens) ||
+        config.maxOutputTokens <= 0
+      ) {
+        throw new ValidationError(
+          "maxOutputTokens must be a positive integer",
         );
       }
     }
@@ -837,6 +859,9 @@ export class RealtimeVision {
           backend: this.config.backend ?? DEFAULTS.BACKEND,
           model: this.config.model!,
           output_schema_json: this.config.outputSchema,
+          ...(this.config.maxOutputTokens !== undefined && {
+            max_output_tokens: this.config.maxOutputTokens,
+          }),
         },
       });
 

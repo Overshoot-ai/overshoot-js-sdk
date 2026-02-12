@@ -22,6 +22,8 @@ export type {
   KeepaliveResponse,
   StatusResponse,
   ErrorResponse,
+  ModelStatus,
+  ModelInfo,
 } from "./client/types";
 export type {
   RealtimeVisionConfig,

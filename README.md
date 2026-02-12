@@ -1,6 +1,6 @@
 # Overshoot SDK
 
-> **Warning: Alpha Release**: This is an alpha version (0.1.0-alpha.3). The API may change in future versions.
+> **Warning: Alpha Release**: This is an alpha version (2.0.0-alpha.2). The API may change in future versions.
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
@@ -13,7 +13,7 @@ npm install @overshoot/sdk@alpha
 Or install a specific alpha version:
 
 ```bash
-npm install @overshoot/sdk@0.1.0-alpha.3
+npm install @overshoot/sdk@2.0.0-alpha.2
 ```
 
 ## Quick Start
@@ -118,6 +118,7 @@ interface RealtimeVisionConfig {
   backend?: "overshoot" | "gemini"; // Model backend (default: "overshoot")
   mode?: "clip" | "frame"; // Processing mode (see Processing Modes below)
   outputSchema?: Record<string, any>; // JSON schema for structured output
+  maxOutputTokens?: number; // Cap tokens per inference request (see below)
   onError?: (error: Error) => void;
   debug?: boolean; // Enable debug logging (default: false)
 
@@ -148,13 +149,78 @@ type StreamSource =
   | { type: "livekit"; url: string; token: string };
 ```
 
+### `maxOutputTokens`
+
+Caps the maximum number of tokens the model can generate per inference request. The server enforces a rate limit of **128 effective output tokens per second** per stream:
+
+```
+effective_tokens_per_second = max_output_tokens × requests_per_second
+```
+
+Where `requests_per_second` is `1 / delay_seconds` (clip mode) or `1 / interval_seconds` (frame mode).
+
+**If omitted**, the server auto-calculates the optimal value: `floor(128 × interval)`. For example, with `delay_seconds: 0.5` (2 requests/sec), the server defaults to `floor(128 × 0.5) = 64` tokens per request.
+
+**If provided**, the server validates that `max_output_tokens / interval ≤ 128`. If exceeded, the request is rejected with a 422 error.
+
+| Scenario | Interval | Requests/sec | Max allowed `maxOutputTokens` |
+| -------- | -------- | ------------ | ----------------------------- |
+| Clip mode, fast updates | 0.2s | 5 | 25 |
+| Clip mode, default | 0.5s | 2 | 64 |
+| Clip mode, slow | 1.0s | 1 | 128 |
+| Frame mode, default | 0.2s | 5 | 25 |
+| Frame mode, slow | 2.0s | 0.5 | 256 |
+| Frame mode, very slow | 5.0s | 0.2 | 640 |
+
+```typescript
+const vision = new RealtimeVision({
+  apiKey: "your-api-key",
+  source: { type: "camera", cameraFacing: "environment" },
+  model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+  prompt: "Describe what you see briefly",
+  maxOutputTokens: 100, // Must satisfy: 100 / delay_seconds ≤ 128
+  clipProcessing: {
+    delay_seconds: 1.0, // 1 request/sec → 100 tokens/sec ≤ 128 ✓
+  },
+  onResult: (result) => console.log(result.result),
+});
+```
+
 ### Available Models
+
+Each model has a `status` field indicating its current availability:
+- `"unavailable"` — Model endpoint is not reachable
+- `"ready"` — Model is available but not yet loaded
+- `"loaded"` — Model is loaded and serving requests
+- `"full"` — Model is at throughput capacity
 
 | Model                            | Description                                                                          |
 | -------------------------------- | ------------------------------------------------------------------------------------ |
 | `Qwen/Qwen3-VL-30B-A3B-Instruct` | Very fast and performant general-purpose vision-language model.                      |
 | `Qwen/Qwen3-VL-8B-Instruct`      | Similar latency to 30B. Particularly good at OCR and text extraction tasks.          |
 | `OpenGVLab/InternVL3_5-30B-A3B`  | Excels at capturing visual detail. More verbose output, higher latency.              |
+
+### Fetching Available Models
+
+Use `StreamClient.getModels()` to query available models and their current status:
+
+```typescript
+import { StreamClient, ModelInfo } from "@overshoot/sdk";
+
+const client = new StreamClient({ apiKey: "your-api-key" });
+const models: ModelInfo[] = await client.getModels();
+
+for (const model of models) {
+  console.log(`${model.model}: ${model.status} (ready: ${model.ready})`);
+}
+
+// ModelInfo type:
+// {
+//   model: string;       // Model identifier
+//   ready: boolean;      // Whether the model is ready to serve requests
+//   status: "unavailable" | "ready" | "loaded" | "full";
+// }
+```
 
 ### Processing Modes
 
@@ -500,6 +566,7 @@ const response = await client.createStream({
     prompt: "Analyze the content",
     backend: "overshoot",
     model: "Qwen/Qwen3-VL-30B-A3B-Instruct",
+    max_output_tokens: 25, // Optional: must satisfy max_output_tokens / delay_seconds ≤ 128
   },
 });
 

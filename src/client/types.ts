@@ -58,6 +58,27 @@ export type StreamInferenceConfig = {
   backend: ModelBackend;
   model: string;
   output_schema_json?: Record<string, any>;
+  /**
+   * Max tokens per inference request. If omitted, the server defaults to
+   * floor(128 × interval) where interval is delay_seconds or interval_seconds.
+   * If provided, must satisfy: max_output_tokens / interval ≤ 128.
+   */
+  max_output_tokens?: number;
+};
+
+/**
+ * Model availability status
+ * - "unavailable": Model endpoint is not reachable
+ * - "ready": Model is available but not yet loaded
+ * - "loaded": Model is loaded and serving requests
+ * - "full": Model is at throughput capacity
+ */
+export type ModelStatus = "unavailable" | "ready" | "loaded" | "full";
+
+export type ModelInfo = {
+  model: string;
+  ready: boolean;
+  status: ModelStatus;
 };
 
 export type StreamClientMeta = {
