@@ -22,11 +22,19 @@ export type WebRtcAnswer = {
 export type StreamMode = "clip" | "frame";
 
 /**
- * Processing config for clip mode - video clips with frame bundling
+ * Processing config for clip mode - video clips with frame bundling.
+ *
+ * Two mutually exclusive formats:
+ * - New: { target_fps } — the server samples frames at this rate
+ * - Legacy: { fps, sampling_ratio } — resolved server-side to target_fps = int(fps * sampling_ratio)
  */
 export type ClipProcessingConfig = {
-  sampling_ratio: number;
-  fps: number;
+  /** Target frame sampling rate (1-30). Preferred over fps + sampling_ratio. */
+  target_fps?: number;
+  /** @deprecated Use target_fps instead. Source FPS. */
+  sampling_ratio?: number;
+  /** @deprecated Use target_fps instead. Fraction of frames to process. */
+  fps?: number;
   clip_length_seconds?: number;
   delay_seconds?: number;
 };
