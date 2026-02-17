@@ -18,9 +18,11 @@ import {
 const DEFAULTS = {
   BACKEND: "overshoot" as ModelBackend,
   // Clip mode defaults
-  SAMPLING_RATIO: 0.8,
+  TARGET_FPS: 6,
   CLIP_LENGTH_SECONDS: 0.5,
-  DELAY_SECONDS: 0.2,
+  DELAY_SECONDS: 0.5,
+  // Legacy clip mode defaults (deprecated)
+  SAMPLING_RATIO: 0.8,
   FALLBACK_FPS: 30,
   // Frame mode defaults
   INTERVAL_SECONDS: 0.2,
@@ -55,10 +57,12 @@ const DEFAULTS = {
  */
 const CONSTRAINTS = {
   // Clip mode constraints
+  TARGET_FPS: { min: 1, max: 30 },
   SAMPLING_RATIO: { min: 0, max: 1 },
   FPS: { min: 1, max: 120 },
   CLIP_LENGTH_SECONDS: { min: 0.1, max: 60 },
   DELAY_SECONDS: { min: 0, max: 60 },
+  MIN_FRAMES_PER_CLIP: 3,
   // Frame mode constraints
   INTERVAL_SECONDS: { min: 0.1, max: 60 },
 } as const;
@@ -97,10 +101,18 @@ class Logger {
  */
 export interface ClipModeProcessing {
   /**
+   * Target frame sampling rate (1-30). The server samples frames at this rate.
+   * Preferred over fps + sampling_ratio. Cannot be combined with fps or sampling_ratio.
+   * Constraint: target_fps * clip_length_seconds >= 3 (minimum 3 frames per clip).
+   */
+  target_fps?: number;
+  /**
+   * @deprecated Use target_fps instead.
    * Sampling ratio (0-1). Controls what fraction of frames are processed.
    */
   sampling_ratio?: number;
   /**
+   * @deprecated Use target_fps instead.
    * Frames per second (1-120)
    */
   fps?: number;
@@ -199,7 +211,7 @@ export interface RealtimeVisionConfig {
   /**
    * Clip mode processing configuration
    * Used when mode is "clip" or not specified (default)
-   * @default { sampling_ratio: 0.8, clip_length_seconds: 0.5, delay_seconds: 0.2 }
+   * @default { target_fps: 6, clip_length_seconds: 0.5, delay_seconds: 0.5 }
    */
   clipProcessing?: ClipModeProcessing;
 
@@ -373,48 +385,88 @@ export class RealtimeVision {
     }
 
     // Validate clip mode processing config
-    if (config.clipProcessing?.sampling_ratio !== undefined) {
-      const ratio = config.clipProcessing.sampling_ratio;
-      if (
-        ratio < CONSTRAINTS.SAMPLING_RATIO.min ||
-        ratio > CONSTRAINTS.SAMPLING_RATIO.max
-      ) {
+    const clipCfg = config.clipProcessing || config.processing;
+    if (clipCfg) {
+      const hasTargetFps = clipCfg.target_fps !== undefined;
+      const hasLegacy =
+        clipCfg.fps !== undefined || clipCfg.sampling_ratio !== undefined;
+
+      // Mutual exclusion: cannot mix target_fps with fps/sampling_ratio
+      if (hasTargetFps && hasLegacy) {
         throw new ValidationError(
-          `sampling_ratio must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}`,
+          "Cannot provide both target_fps and fps/sampling_ratio. Use target_fps (preferred) or fps + sampling_ratio, not both.",
         );
       }
-    }
 
-    if (config.clipProcessing?.fps !== undefined) {
-      const fps = config.clipProcessing.fps;
-      if (fps < CONSTRAINTS.FPS.min || fps > CONSTRAINTS.FPS.max) {
-        throw new ValidationError(
-          `fps must be between ${CONSTRAINTS.FPS.min} and ${CONSTRAINTS.FPS.max}`,
-        );
+      // Validate target_fps
+      if (clipCfg.target_fps !== undefined) {
+        const targetFps = clipCfg.target_fps;
+        if (
+          targetFps < CONSTRAINTS.TARGET_FPS.min ||
+          targetFps > CONSTRAINTS.TARGET_FPS.max
+        ) {
+          throw new ValidationError(
+            `target_fps must be between ${CONSTRAINTS.TARGET_FPS.min} and ${CONSTRAINTS.TARGET_FPS.max}`,
+          );
+        }
+
+        // Minimum frames per clip constraint
+        const clipLen =
+          clipCfg.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS;
+        if (targetFps * clipLen < CONSTRAINTS.MIN_FRAMES_PER_CLIP) {
+          throw new ValidationError(
+            `target_fps * clip_length_seconds must be >= ${CONSTRAINTS.MIN_FRAMES_PER_CLIP} (got ${targetFps} * ${clipLen} = ${targetFps * clipLen})`,
+          );
+        }
       }
-    }
 
-    if (config.clipProcessing?.clip_length_seconds !== undefined) {
-      const clip = config.clipProcessing.clip_length_seconds;
-      if (
-        clip < CONSTRAINTS.CLIP_LENGTH_SECONDS.min ||
-        clip > CONSTRAINTS.CLIP_LENGTH_SECONDS.max
-      ) {
-        throw new ValidationError(
-          `clip_length_seconds must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}`,
-        );
+      // Validate legacy sampling_ratio
+      if (clipCfg.sampling_ratio !== undefined) {
+        const ratio = clipCfg.sampling_ratio;
+        if (
+          ratio < CONSTRAINTS.SAMPLING_RATIO.min ||
+          ratio > CONSTRAINTS.SAMPLING_RATIO.max
+        ) {
+          throw new ValidationError(
+            `sampling_ratio must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}`,
+          );
+        }
       }
-    }
 
-    if (config.clipProcessing?.delay_seconds !== undefined) {
-      const delay = config.clipProcessing.delay_seconds;
-      if (
-        delay < CONSTRAINTS.DELAY_SECONDS.min ||
-        delay > CONSTRAINTS.DELAY_SECONDS.max
-      ) {
-        throw new ValidationError(
-          `delay_seconds must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max}`,
-        );
+      // Validate legacy fps
+      if (clipCfg.fps !== undefined) {
+        const fps = clipCfg.fps;
+        if (fps < CONSTRAINTS.FPS.min || fps > CONSTRAINTS.FPS.max) {
+          throw new ValidationError(
+            `fps must be between ${CONSTRAINTS.FPS.min} and ${CONSTRAINTS.FPS.max}`,
+          );
+        }
+      }
+
+      // Validate clip_length_seconds
+      if (clipCfg.clip_length_seconds !== undefined) {
+        const clip = clipCfg.clip_length_seconds;
+        if (
+          clip < CONSTRAINTS.CLIP_LENGTH_SECONDS.min ||
+          clip > CONSTRAINTS.CLIP_LENGTH_SECONDS.max
+        ) {
+          throw new ValidationError(
+            `clip_length_seconds must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}`,
+          );
+        }
+      }
+
+      // Validate delay_seconds
+      if (clipCfg.delay_seconds !== undefined) {
+        const delay = clipCfg.delay_seconds;
+        if (
+          delay < CONSTRAINTS.DELAY_SECONDS.min ||
+          delay > CONSTRAINTS.DELAY_SECONDS.max
+        ) {
+          throw new ValidationError(
+            `delay_seconds must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max}`,
+          );
+        }
       }
     }
 
@@ -442,51 +494,6 @@ export class RealtimeVision {
       }
     }
 
-    // Validate deprecated processing config (same as clipProcessing)
-    if (config.processing?.sampling_ratio !== undefined) {
-      const ratio = config.processing.sampling_ratio;
-      if (
-        ratio < CONSTRAINTS.SAMPLING_RATIO.min ||
-        ratio > CONSTRAINTS.SAMPLING_RATIO.max
-      ) {
-        throw new ValidationError(
-          `sampling_ratio must be between ${CONSTRAINTS.SAMPLING_RATIO.min} and ${CONSTRAINTS.SAMPLING_RATIO.max}`,
-        );
-      }
-    }
-
-    if (config.processing?.fps !== undefined) {
-      const fps = config.processing.fps;
-      if (fps < CONSTRAINTS.FPS.min || fps > CONSTRAINTS.FPS.max) {
-        throw new ValidationError(
-          `fps must be between ${CONSTRAINTS.FPS.min} and ${CONSTRAINTS.FPS.max}`,
-        );
-      }
-    }
-
-    if (config.processing?.clip_length_seconds !== undefined) {
-      const clip = config.processing.clip_length_seconds;
-      if (
-        clip < CONSTRAINTS.CLIP_LENGTH_SECONDS.min ||
-        clip > CONSTRAINTS.CLIP_LENGTH_SECONDS.max
-      ) {
-        throw new ValidationError(
-          `clip_length_seconds must be between ${CONSTRAINTS.CLIP_LENGTH_SECONDS.min} and ${CONSTRAINTS.CLIP_LENGTH_SECONDS.max}`,
-        );
-      }
-    }
-
-    if (config.processing?.delay_seconds !== undefined) {
-      const delay = config.processing.delay_seconds;
-      if (
-        delay < CONSTRAINTS.DELAY_SECONDS.min ||
-        delay > CONSTRAINTS.DELAY_SECONDS.max
-      ) {
-        throw new ValidationError(
-          `delay_seconds must be between ${CONSTRAINTS.DELAY_SECONDS.min} and ${CONSTRAINTS.DELAY_SECONDS.max}`,
-        );
-      }
-    }
   }
 
   /**
@@ -791,9 +798,24 @@ export class RealtimeVision {
     // Clip mode - use clipProcessing, fall back to deprecated processing
     const clipConfig =
       this.config.clipProcessing || this.config.processing || {};
+
+    const hasLegacy =
+      clipConfig.fps !== undefined || clipConfig.sampling_ratio !== undefined;
+
+    // Legacy format: only when user explicitly provides fps or sampling_ratio
+    if (hasLegacy) {
+      return {
+        sampling_ratio: clipConfig.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
+        fps: clipConfig.fps ?? detectedFps,
+        clip_length_seconds:
+          clipConfig.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
+        delay_seconds: clipConfig.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
+      } as ClipProcessingConfig;
+    }
+
+    // Default: target_fps format
     return {
-      sampling_ratio: clipConfig.sampling_ratio ?? DEFAULTS.SAMPLING_RATIO,
-      fps: clipConfig.fps ?? detectedFps,
+      target_fps: clipConfig.target_fps ?? DEFAULTS.TARGET_FPS,
       clip_length_seconds:
         clipConfig.clip_length_seconds ?? DEFAULTS.CLIP_LENGTH_SECONDS,
       delay_seconds: clipConfig.delay_seconds ?? DEFAULTS.DELAY_SECONDS,
@@ -891,11 +913,16 @@ export class RealtimeVision {
         };
       }
 
-      // Get FPS — use fallback for LiveKit since there's no local stream
-      const detectedFps =
-        source.type === "livekit"
+      // Get FPS — only needed for legacy fps/sampling_ratio format
+      const clipCfg =
+        this.config.clipProcessing || this.config.processing || {};
+      const needsLegacyFps =
+        clipCfg.fps !== undefined || clipCfg.sampling_ratio !== undefined;
+      const detectedFps = needsLegacyFps
+        ? source.type === "livekit"
           ? DEFAULTS.FALLBACK_FPS
-          : await this.getStreamFps(this.mediaStream, source);
+          : await this.getStreamFps(this.mediaStream, source)
+        : 0; // unused when using target_fps
 
       // Create stream on server
       this.logger.debug("Creating stream on server with mode:", mode);

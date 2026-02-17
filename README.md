@@ -118,10 +118,12 @@ interface RealtimeVisionConfig {
 
   // Clip mode processing (default mode)
   clipProcessing?: {
-    fps?: number; // Source frames per second (1-120, auto-detected for cameras)
-    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.8)
+    target_fps?: number; // Target frame sampling rate (1-30, default: 6)
     clip_length_seconds?: number; // Duration of each clip (0.1-60s, default: 0.5)
-    delay_seconds?: number; // Interval between inferences (0-60s, default: 0.2)
+    delay_seconds?: number; // Interval between inferences (0-60s, default: 0.5)
+    // Legacy (deprecated) — use target_fps instead:
+    fps?: number; // Source frames per second (1-120, auto-detected)
+    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.8)
   };
 
   // Frame mode processing
@@ -225,9 +227,9 @@ const vision = new RealtimeVision({
   // ... other config
   mode: "clip", // Optional - this is the default
   clipProcessing: {
-    sampling_ratio: 0.8, // Process 80% of frames (default)
-    clip_length_seconds: 0.5, // 0.5 second clips (default)
-    delay_seconds: 0.2, // New clip every 0.2s (default)
+    target_fps: 10, // Sample 10 frames per second from the video
+    clip_length_seconds: 3, // 3 second clips
+    delay_seconds: 1, // New clip every second
   },
 });
 ```
@@ -256,16 +258,24 @@ const vision = new RealtimeVision({
 
 #### Clip Mode Parameters
 
+- **`target_fps`** *(preferred)*: The rate at which frames are sampled from the video stream (1–30). The server handles frame sampling at this rate, making clip duration deterministic regardless of source FPS. **Constraint:** `target_fps * clip_length_seconds >= 3` (minimum 3 frames per clip).
+- **`clip_length_seconds`**: Duration of video captured for each inference (default: 0.5 seconds).
+- **`delay_seconds`**: How often inference runs (default: 0.5 seconds — 2 inferences per second).
+
+**Example:** `target_fps=10`, `clip_length_seconds=3`, `delay_seconds=1`:
+
+- 10 frames sampled per second from the video
+- Each clip contains 30 frames (10 × 3)
+- New clip starts every 1 second = 1 inference result per second
+
+##### Legacy parameters (deprecated)
+
+You can still use `fps` + `sampling_ratio` instead of `target_fps`, but they cannot be combined with `target_fps`.
+
 - **`fps`**: The frame rate of your video source. Auto-detected for camera streams; defaults to 30 for video files.
 - **`sampling_ratio`**: What fraction of frames to include in each clip (0.8 = 80% of frames, default).
-- **`clip_length_seconds`**: Duration of video captured for each inference (default: 0.5 seconds).
-- **`delay_seconds`**: How often inference runs (default: 0.2 seconds - 5 inferences per second).
 
-**Example with defaults:** `fps=30`, `clip_length_seconds=0.5`, `sampling_ratio=0.8`, `delay_seconds=0.2`:
-
-- Each clip captures 0.5 seconds of video (15 frames at 30fps)
-- 80% of frames are sampled = 12 frames sent to the model
-- New clip starts every 0.2 seconds = ~5 inference results per second
+These are resolved server-side as `target_fps = int(fps * sampling_ratio)`.
 
 #### Frame Mode Parameters
 
@@ -284,7 +294,7 @@ Different applications need different processing configurations:
 
 ```typescript
 clipProcessing: {
-  sampling_ratio: 0.8,
+  target_fps: 15,
   clip_length_seconds: 0.5,
   delay_seconds: 0.2,
 }
@@ -294,7 +304,7 @@ clipProcessing: {
 
 ```typescript
 clipProcessing: {
-  sampling_ratio: 0.5,
+  target_fps: 5,
   clip_length_seconds: 3.0,
   delay_seconds: 2.0,
 }
@@ -549,10 +559,9 @@ const response = await client.createStream({
   source: { type: "webrtc", sdp: peerConnection.localDescription.sdp },
   mode: "clip",
   processing: {
-    sampling_ratio: 0.8,
-    fps: 30,
-    clip_length_seconds: 0.5,
-    delay_seconds: 0.2
+    target_fps: 10,
+    clip_length_seconds: 3,
+    delay_seconds: 1,
   },
   inference: {
     prompt: "Analyze the content",
