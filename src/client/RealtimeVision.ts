@@ -545,40 +545,33 @@ export class RealtimeVision {
         await video.play();
         this.logger.debug("Video playback started");
 
-        let stream: MediaStream;
+        // Always use canvas intermediary for video file sources.
+        // This normalizes any codec (HEVC, 10-bit, HDR/BT.2020) to standard
+        // 8-bit sRGB output that WebRTC can negotiate. drawImage() is
+        // GPU-accelerated so the performance cost is negligible.
+        this.logger.debug(
+          "Using canvas intermediary for video file (ensures WebRTC codec compatibility)",
+        );
 
-        // Check if captureStream is supported (Chrome, Firefox)
-        if (typeof video.captureStream === "function") {
-          this.logger.debug("Using native video.captureStream()");
-          stream = video.captureStream();
-        } else {
-          // Safari fallback: use canvas to capture the video stream
-          this.logger.debug(
-            "captureStream not supported, using canvas fallback for Safari",
-          );
+        const canvas = document.createElement("canvas");
+        canvas.width = video.videoWidth || 640;
+        canvas.height = video.videoHeight || 480;
+        const ctx = canvas.getContext("2d");
 
-          const canvas = document.createElement("canvas");
-          canvas.width = video.videoWidth || 640;
-          canvas.height = video.videoHeight || 480;
-          const ctx = canvas.getContext("2d");
-
-          if (!ctx) {
-            throw new Error("Failed to get canvas 2D context");
-          }
-
-          // Draw video frames to canvas continuously
-          const drawFrame = () => {
-            if (!video.paused && !video.ended) {
-              ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-              this.canvasAnimationFrameId = requestAnimationFrame(drawFrame);
-            }
-          };
-          drawFrame();
-
-          // Capture stream from canvas (30 fps)
-          stream = canvas.captureStream(30);
-          this.canvasElement = canvas;
+        if (!ctx) {
+          throw new Error("Failed to get canvas 2D context");
         }
+
+        const drawFrame = () => {
+          if (!video.paused && !video.ended) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            this.canvasAnimationFrameId = requestAnimationFrame(drawFrame);
+          }
+        };
+        drawFrame();
+
+        const stream = canvas.captureStream(30);
+        this.canvasElement = canvas;
 
         if (!stream) {
           throw new Error("Failed to capture video stream");
