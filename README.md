@@ -1,24 +1,18 @@
 # Overshoot SDK
 
-> **Warning: Alpha Release**: This is an alpha version (2.0.0-alpha.2). The API may change in future versions.
+> **Warning: Alpha Release**: The API may change in future versions.
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
 ## Installation
 
 ```bash
-npm install overshoot@alpha
-```
-
-Or install a specific alpha version:
-
-```bash
-npm install overshoot@2.0.0-alpha.2
+npm install overshoot
 ```
 
 ## Quick Start
 
-> **Note:** The `apiUrl` parameter is optional and defaults to `https://api.overshoot.ai/`.
+> **Note:** The `apiUrl` parameter is optional and defaults to `https://api.overshoot.ai/v0.2`.
 > You can omit it for standard usage or provide a custom URL for private deployments.
 
 ### Camera Source
@@ -114,7 +108,7 @@ interface RealtimeVisionConfig {
   onResult: (result: StreamInferenceResult) => void;
 
   // Optional
-  apiUrl?: string; // API endpoint (default: "https://api.overshoot.ai/")
+  apiUrl?: string; // API endpoint (default: "https://api.overshoot.ai/v0.2")
   backend?: "overshoot" | "gemini"; // Model backend (default: "overshoot")
   mode?: "clip" | "frame"; // Processing mode (see Processing Modes below)
   outputSchema?: Record<string, any>; // JSON schema for structured output
@@ -124,10 +118,12 @@ interface RealtimeVisionConfig {
 
   // Clip mode processing (default mode)
   clipProcessing?: {
-    fps?: number; // Source frames per second (1-120, auto-detected for cameras)
-    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.8)
+    target_fps?: number; // Target frame sampling rate (1-30, default: 6)
     clip_length_seconds?: number; // Duration of each clip (0.1-60s, default: 0.5)
-    delay_seconds?: number; // Interval between inferences (0-60s, default: 0.2)
+    delay_seconds?: number; // Interval between inferences (0-60s, default: 0.5)
+    // Legacy (deprecated) — use target_fps instead:
+    fps?: number; // Source frames per second (1-120, auto-detected)
+    sampling_ratio?: number; // Fraction of frames to process (0-1, default: 0.8)
   };
 
   // Frame mode processing
@@ -163,14 +159,14 @@ Where `requests_per_second` is `1 / delay_seconds` (clip mode) or `1 / interval_
 
 **If provided**, the server validates that `max_output_tokens / interval ≤ 128`. If exceeded, the request is rejected with a 422 error.
 
-| Scenario | Interval | Requests/sec | Max allowed `maxOutputTokens` |
-| -------- | -------- | ------------ | ----------------------------- |
-| Clip mode, fast updates | 0.2s | 5 | 25 |
-| Clip mode, default | 0.5s | 2 | 64 |
-| Clip mode, slow | 1.0s | 1 | 128 |
-| Frame mode, default | 0.2s | 5 | 25 |
-| Frame mode, slow | 2.0s | 0.5 | 256 |
-| Frame mode, very slow | 5.0s | 0.2 | 640 |
+| Scenario                | Interval | Requests/sec | Max allowed `maxOutputTokens` |
+| ----------------------- | -------- | ------------ | ----------------------------- |
+| Clip mode, fast updates | 0.2s     | 5            | 25                            |
+| Clip mode, default      | 0.5s     | 2            | 64                            |
+| Clip mode, slow         | 1.0s     | 1            | 128                           |
+| Frame mode, default     | 0.2s     | 5            | 25                            |
+| Frame mode, slow        | 2.0s     | 0.5          | 256                           |
+| Frame mode, very slow   | 5.0s     | 0.2          | 640                           |
 
 ```typescript
 const vision = new RealtimeVision({
@@ -188,11 +184,11 @@ const vision = new RealtimeVision({
 
 ### Available Models
 
-| Model                            | Description                                                                          |
-| -------------------------------- | ------------------------------------------------------------------------------------ |
-| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Very fast and performant general-purpose vision-language model.                      |
-| `Qwen/Qwen3-VL-8B-Instruct`      | Similar latency to 30B. Particularly good at OCR and text extraction tasks.          |
-| `OpenGVLab/InternVL3_5-30B-A3B`  | Excels at capturing visual detail. More verbose output, higher latency.              |
+| Model                            | Description                                                                 |
+| -------------------------------- | --------------------------------------------------------------------------- |
+| `Qwen/Qwen3-VL-30B-A3B-Instruct` | Very fast and performant general-purpose vision-language model.             |
+| `Qwen/Qwen3-VL-8B-Instruct`      | Similar latency to 30B. Particularly good at OCR and text extraction tasks. |
+| `OpenGVLab/InternVL3_5-30B-A3B`  | Excels at capturing visual detail. More verbose output, higher latency.     |
 
 ### Fetching Available Models
 
@@ -211,12 +207,12 @@ for (const model of models) {
 
 Each model has a `status` indicating its current load:
 
-| Status | `ready` | Meaning | Action |
-| ------ | ------- | ------- | ------ |
-| `"ready"` | `true` | Healthy, performing well | Use this model |
-| `"degraded"` | `true` | Near capacity, expect higher latency | Usable, but consider alternatives |
-| `"saturated"` | `false` | At capacity, will reject new streams | Pick a different model |
-| `"unavailable"` | `false` | Endpoint not reachable | Pick a different model |
+| Status          | `ready` | Meaning                              | Action                            |
+| --------------- | ------- | ------------------------------------ | --------------------------------- |
+| `"ready"`       | `true`  | Healthy, performing well             | Use this model                    |
+| `"degraded"`    | `true`  | Near capacity, expect higher latency | Usable, but consider alternatives |
+| `"saturated"`   | `false` | At capacity, will reject new streams | Pick a different model            |
+| `"unavailable"` | `false` | Endpoint not reachable               | Pick a different model            |
 
 ### Processing Modes
 
@@ -231,9 +227,9 @@ const vision = new RealtimeVision({
   // ... other config
   mode: "clip", // Optional - this is the default
   clipProcessing: {
-    sampling_ratio: 0.8,        // Process 80% of frames (default)
-    clip_length_seconds: 0.5,   // 0.5 second clips (default)
-    delay_seconds: 0.2,         // New clip every 0.2s (default)
+    target_fps: 10, // Sample 10 frames per second from the video
+    clip_length_seconds: 3, // 3 second clips
+    delay_seconds: 1, // New clip every second
   },
 });
 ```
@@ -262,16 +258,24 @@ const vision = new RealtimeVision({
 
 #### Clip Mode Parameters
 
+- **`target_fps`** *(preferred)*: The rate at which frames are sampled from the video stream (1–30). The server handles frame sampling at this rate, making clip duration deterministic regardless of source FPS. **Constraint:** `target_fps * clip_length_seconds >= 3` (minimum 3 frames per clip).
+- **`clip_length_seconds`**: Duration of video captured for each inference (default: 0.5 seconds).
+- **`delay_seconds`**: How often inference runs (default: 0.5 seconds — 2 inferences per second).
+
+**Example:** `target_fps=10`, `clip_length_seconds=3`, `delay_seconds=1`:
+
+- 10 frames sampled per second from the video
+- Each clip contains 30 frames (10 × 3)
+- New clip starts every 1 second = 1 inference result per second
+
+##### Legacy parameters (deprecated)
+
+You can still use `fps` + `sampling_ratio` instead of `target_fps`, but they cannot be combined with `target_fps`.
+
 - **`fps`**: The frame rate of your video source. Auto-detected for camera streams; defaults to 30 for video files.
 - **`sampling_ratio`**: What fraction of frames to include in each clip (0.8 = 80% of frames, default).
-- **`clip_length_seconds`**: Duration of video captured for each inference (default: 0.5 seconds).
-- **`delay_seconds`**: How often inference runs (default: 0.2 seconds - 5 inferences per second).
 
-**Example with defaults:** `fps=30`, `clip_length_seconds=0.5`, `sampling_ratio=0.8`, `delay_seconds=0.2`:
-
-- Each clip captures 0.5 seconds of video (15 frames at 30fps)
-- 80% of frames are sampled = 12 frames sent to the model
-- New clip starts every 0.2 seconds = ~5 inference results per second
+These are resolved server-side as `target_fps = int(fps * sampling_ratio)`.
 
 #### Frame Mode Parameters
 
@@ -290,7 +294,7 @@ Different applications need different processing configurations:
 
 ```typescript
 clipProcessing: {
-  sampling_ratio: 0.8,
+  target_fps: 15,
   clip_length_seconds: 0.5,
   delay_seconds: 0.2,
 }
@@ -300,7 +304,7 @@ clipProcessing: {
 
 ```typescript
 clipProcessing: {
-  sampling_ratio: 0.5,
+  target_fps: 5,
   clip_length_seconds: 3.0,
   delay_seconds: 2.0,
 }
@@ -389,9 +393,9 @@ const vision = new RealtimeVision({
   outputSchema: {
     type: "object",
     properties: {
-      position: { type: "string", enum: ["up", "down"] }
+      position: { type: "string", enum: ["up", "down"] },
     },
-    required: ["position"]
+    required: ["position"],
   },
   onResult: (result) => {
     const data = JSON.parse(result.result);
@@ -451,16 +455,16 @@ const vision = new RealtimeVision({
     type: "object",
     properties: {
       description: { type: "string" },
-      alert: { type: "boolean" }
+      alert: { type: "boolean" },
     },
-    required: ["description", "alert"]
+    required: ["description", "alert"],
   },
   onResult: (result) => {
     const data = JSON.parse(result.result);
     if (data.alert) {
       console.log("⚠️ Alert:", data.description);
     }
-  }
+  },
 });
 ```
 
@@ -555,10 +559,9 @@ const response = await client.createStream({
   source: { type: "webrtc", sdp: peerConnection.localDescription.sdp },
   mode: "clip",
   processing: {
-    sampling_ratio: 0.8,
-    fps: 30,
-    clip_length_seconds: 0.5,
-    delay_seconds: 0.2
+    target_fps: 10,
+    clip_length_seconds: 3,
+    delay_seconds: 1,
   },
   inference: {
     prompt: "Analyze the content",
@@ -713,6 +716,7 @@ interface StreamInferenceResult {
 ```
 
 The `finish_reason` field indicates why the model stopped generating:
+
 - `"stop"` — Model finished naturally
 - `"length"` — Output was truncated because it hit `maxOutputTokens`. Consider increasing the value or using a longer processing interval.
 - `"content_filter"` — Output was blocked by safety filtering
@@ -748,7 +752,6 @@ The SDK provides specific error classes for different failure modes:
 - `ServerError` - Server-side errors
 - `ApiError` - General API errors
 
-
 ## Browser Compatibility
 
 Requires browsers with support for:
@@ -760,6 +763,7 @@ Requires browsers with support for:
 - Screen capture requires getDisplayMedia API (desktop browsers only)
 
 Supported browsers:
+
 - Camera/Video: Chrome 80+, Firefox 75+, Safari 14+, Edge 80+
 - Screen capture: Chrome 72+, Firefox 66+, Safari 13+, Edge 79+ (desktop only)
 
