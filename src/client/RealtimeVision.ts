@@ -167,6 +167,7 @@ export interface RealtimeVisionConfig {
    * - "video": { type: "video", file: File }
    * - "screen": { type: "screen" }
    * - "livekit": { type: "livekit", url: string, token: string }
+   * - "hls": { type: "hls", url: string }
    */
   source: StreamSource;
 
@@ -272,6 +273,8 @@ export class RealtimeVision {
   private canvasAnimationFrameId: number | null = null;
   private screenCanvasIntervalId: number | null = null;
   private rawScreenStream: MediaStream | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private hlsInstance: any = null;
 
   private isRunning = false;
 
@@ -377,9 +380,15 @@ export class RealtimeVision {
             "Screen sharing is not supported in this browser. getDisplayMedia API is required.",
           );
         }
+      } else if (config.source.type === "hls") {
+        if (!config.source.url || typeof config.source.url !== "string") {
+          throw new ValidationError(
+            "hls source url is required and must be a non-empty string",
+          );
+        }
       } else {
         throw new ValidationError(
-          'source.type must be "camera", "video", "livekit", or "screen"',
+          'source.type must be "camera", "video", "livekit", "screen", or "hls"',
         );
       }
     }
@@ -671,6 +680,89 @@ export class RealtimeVision {
           );
         }
 
+      case "hls": {
+        const hlsVideo = document.createElement("video");
+        hlsVideo.muted = true;
+        hlsVideo.playsInline = true;
+        hlsVideo.crossOrigin = "anonymous";
+
+        this.logger.debug("Loading HLS stream:", source.url);
+
+        // Attach HLS
+        if (hlsVideo.canPlayType("application/vnd.apple.mpegurl")) {
+          // Safari native HLS
+          hlsVideo.src = source.url;
+        } else {
+          const Hls = (await import("hls.js")).default;
+          if (!Hls.isSupported()) {
+            throw new Error("HLS is not supported in this browser");
+          }
+          const hls = new Hls();
+          this.hlsInstance = hls;
+          hls.loadSource(source.url);
+          hls.attachMedia(hlsVideo);
+          await new Promise<void>((resolve, reject) => {
+            hls.on(Hls.Events.MANIFEST_PARSED, () => resolve());
+            hls.on(Hls.Events.ERROR, (_e: any, data: any) => {
+              if (data.fatal) reject(new Error(`HLS fatal error: ${data.type}`));
+            });
+          });
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          const timeout = setTimeout(() => {
+            reject(new Error("HLS stream load timeout after 15 seconds"));
+          }, 15000);
+
+          hlsVideo.onloadedmetadata = () => {
+            clearTimeout(timeout);
+            this.logger.debug("HLS stream metadata loaded");
+            resolve();
+          };
+
+          hlsVideo.onerror = () => {
+            clearTimeout(timeout);
+            reject(new Error("Failed to load HLS stream"));
+          };
+
+          if (hlsVideo.readyState >= 1) {
+            clearTimeout(timeout);
+            resolve();
+          }
+        });
+
+        await hlsVideo.play();
+        this.logger.debug("HLS playback started");
+
+        // Canvas intermediary — same as video file source
+        const hlsCanvas = document.createElement("canvas");
+        hlsCanvas.width = hlsVideo.videoWidth || 1280;
+        hlsCanvas.height = hlsVideo.videoHeight || 720;
+        const hlsCtx = hlsCanvas.getContext("2d");
+
+        if (!hlsCtx) {
+          throw new Error("Failed to get canvas 2D context");
+        }
+
+        const drawHlsFrame = () => {
+          if (!hlsVideo.paused && !hlsVideo.ended) {
+            hlsCtx.drawImage(hlsVideo, 0, 0, hlsCanvas.width, hlsCanvas.height);
+            this.canvasAnimationFrameId = requestAnimationFrame(drawHlsFrame);
+          }
+        };
+        drawHlsFrame();
+
+        const hlsStream = hlsCanvas.captureStream(30);
+        this.canvasElement = hlsCanvas;
+
+        if (!hlsStream || hlsStream.getVideoTracks().length === 0) {
+          throw new Error("Failed to capture HLS stream");
+        }
+
+        this.videoElement = hlsVideo;
+        return hlsStream;
+      }
+
       default:
         throw new Error(`Unknown source type: ${(source as any).type}`);
     }
@@ -720,6 +812,12 @@ export class RealtimeVision {
         typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
       this.logger.debug("Detected screen capture FPS:", fps);
       return Math.round(fps);
+    }
+
+    // For HLS sources, return default (stream FPS varies)
+    if (source.type === "hls") {
+      this.logger.debug("Using default FPS for HLS source:", DEFAULTS.FALLBACK_FPS);
+      return DEFAULTS.FALLBACK_FPS;
     }
 
     // For video file sources, try to get FPS from the captured stream track
@@ -1174,6 +1272,11 @@ export class RealtimeVision {
     if (this.rawScreenStream) {
       this.rawScreenStream.getTracks().forEach((track) => track.stop());
       this.rawScreenStream = null;
+    }
+
+    if (this.hlsInstance) {
+      this.hlsInstance.destroy();
+      this.hlsInstance = null;
     }
 
     if (this.canvasElement) {
