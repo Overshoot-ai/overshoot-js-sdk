@@ -1,5 +1,6 @@
 import { StreamClient } from "./client";
 import { DEFAULT_API_URL } from "./constants";
+import { createHlsStream } from "./hlsStream";
 
 import {
   type StreamInferenceResult,
@@ -681,86 +682,13 @@ export class RealtimeVision {
         }
 
       case "hls": {
-        const hlsVideo = document.createElement("video");
-        hlsVideo.muted = true;
-        hlsVideo.playsInline = true;
-        hlsVideo.crossOrigin = "anonymous";
-
         this.logger.debug("Loading HLS stream:", source.url);
-
-        // Attach HLS
-        if (hlsVideo.canPlayType("application/vnd.apple.mpegurl")) {
-          // Safari native HLS
-          hlsVideo.src = source.url;
-        } else {
-          const Hls = (await import("hls.js")).default;
-          if (!Hls.isSupported()) {
-            throw new Error("HLS is not supported in this browser");
-          }
-          const hls = new Hls();
-          this.hlsInstance = hls;
-          hls.loadSource(source.url);
-          hls.attachMedia(hlsVideo);
-          await new Promise<void>((resolve, reject) => {
-            hls.on(Hls.Events.MANIFEST_PARSED, () => resolve());
-            hls.on(Hls.Events.ERROR, (_e: any, data: any) => {
-              if (data.fatal) reject(new Error(`HLS fatal error: ${data.type}`));
-            });
-          });
-        }
-
-        await new Promise<void>((resolve, reject) => {
-          const timeout = setTimeout(() => {
-            reject(new Error("HLS stream load timeout after 15 seconds"));
-          }, 15000);
-
-          hlsVideo.onloadedmetadata = () => {
-            clearTimeout(timeout);
-            this.logger.debug("HLS stream metadata loaded");
-            resolve();
-          };
-
-          hlsVideo.onerror = () => {
-            clearTimeout(timeout);
-            reject(new Error("Failed to load HLS stream"));
-          };
-
-          if (hlsVideo.readyState >= 1) {
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-
-        await hlsVideo.play();
-        this.logger.debug("HLS playback started");
-
-        // Canvas intermediary — same as video file source
-        const hlsCanvas = document.createElement("canvas");
-        hlsCanvas.width = hlsVideo.videoWidth || 1280;
-        hlsCanvas.height = hlsVideo.videoHeight || 720;
-        const hlsCtx = hlsCanvas.getContext("2d");
-
-        if (!hlsCtx) {
-          throw new Error("Failed to get canvas 2D context");
-        }
-
-        const drawHlsFrame = () => {
-          if (!hlsVideo.paused && !hlsVideo.ended) {
-            hlsCtx.drawImage(hlsVideo, 0, 0, hlsCanvas.width, hlsCanvas.height);
-            this.canvasAnimationFrameId = requestAnimationFrame(drawHlsFrame);
-          }
-        };
-        drawHlsFrame();
-
-        const hlsStream = hlsCanvas.captureStream(30);
-        this.canvasElement = hlsCanvas;
-
-        if (!hlsStream || hlsStream.getVideoTracks().length === 0) {
-          throw new Error("Failed to capture HLS stream");
-        }
-
-        this.videoElement = hlsVideo;
-        return hlsStream;
+        const hlsResult = await createHlsStream(source.url);
+        this.hlsInstance = hlsResult.hls;
+        this.videoElement = hlsResult.video;
+        this.canvasElement = hlsResult.canvas;
+        this.canvasAnimationFrameId = hlsResult.animationFrameId;
+        return hlsResult.stream;
       }
 
       default:
