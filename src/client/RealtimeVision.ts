@@ -1,5 +1,6 @@
 import { StreamClient } from "./client";
 import { DEFAULT_API_URL } from "./constants";
+import { createHlsStream } from "./hlsStream";
 
 import {
   type StreamInferenceResult,
@@ -167,6 +168,7 @@ export interface RealtimeVisionConfig {
    * - "video": { type: "video", file: File }
    * - "screen": { type: "screen" }
    * - "livekit": { type: "livekit", url: string, token: string }
+   * - "hls": { type: "hls", url: string }
    */
   source: StreamSource;
 
@@ -272,6 +274,8 @@ export class RealtimeVision {
   private canvasAnimationFrameId: number | null = null;
   private screenCanvasIntervalId: number | null = null;
   private rawScreenStream: MediaStream | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private hlsInstance: any = null;
 
   private isRunning = false;
 
@@ -377,9 +381,15 @@ export class RealtimeVision {
             "Screen sharing is not supported in this browser. getDisplayMedia API is required.",
           );
         }
+      } else if (config.source.type === "hls") {
+        if (!config.source.url || typeof config.source.url !== "string") {
+          throw new ValidationError(
+            "hls source url is required and must be a non-empty string",
+          );
+        }
       } else {
         throw new ValidationError(
-          'source.type must be "camera", "video", "livekit", or "screen"',
+          'source.type must be "camera", "video", "livekit", "screen", or "hls"',
         );
       }
     }
@@ -671,6 +681,16 @@ export class RealtimeVision {
           );
         }
 
+      case "hls": {
+        this.logger.debug("Loading HLS stream:", source.url);
+        const hlsResult = await createHlsStream(source.url);
+        this.hlsInstance = hlsResult.hls;
+        this.videoElement = hlsResult.video;
+        this.canvasElement = hlsResult.canvas;
+        this.canvasAnimationFrameId = hlsResult.animationFrameId;
+        return hlsResult.stream;
+      }
+
       default:
         throw new Error(`Unknown source type: ${(source as any).type}`);
     }
@@ -720,6 +740,12 @@ export class RealtimeVision {
         typeof raw === "number" && raw > 0 ? raw : DEFAULTS.FALLBACK_FPS;
       this.logger.debug("Detected screen capture FPS:", fps);
       return Math.round(fps);
+    }
+
+    // For HLS sources, return default (stream FPS varies)
+    if (source.type === "hls") {
+      this.logger.debug("Using default FPS for HLS source:", DEFAULTS.FALLBACK_FPS);
+      return DEFAULTS.FALLBACK_FPS;
     }
 
     // For video file sources, try to get FPS from the captured stream track
@@ -1174,6 +1200,11 @@ export class RealtimeVision {
     if (this.rawScreenStream) {
       this.rawScreenStream.getTracks().forEach((track) => track.stop());
       this.rawScreenStream = null;
+    }
+
+    if (this.hlsInstance) {
+      this.hlsInstance.destroy();
+      this.hlsInstance = null;
     }
 
     if (this.canvasElement) {
