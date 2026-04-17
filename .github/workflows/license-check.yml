@@ -1,0 +1,40 @@
+name: "License Check"
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  js-licenses:
+    name: JS License Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm install --ignore-scripts 2>/dev/null || npm install 2>/dev/null || true
+
+      - name: Check for restricted licenses
+        run: |
+          npx license-checker --json --out /tmp/licenses.json
+          BANNED="GPL-3.0|AGPL|SSPL|EUPL|CC-BY-NC|CC-BY-SA"
+          FOUND=$(npx license-checker --csv | grep -iE "$BANNED" | grep -ivE "LGPL" || true)
+          if [ -n "$FOUND" ]; then
+            echo "::warning::Restricted license(s) detected in npm dependencies:"
+            echo "$FOUND"
+            echo ""
+            echo "The following packages use copyleft or restricted licenses."
+            echo "Please review before merging."
+          else
+            echo "All JS licenses OK"
+          fi
+
+      - name: Generate license report
+        if: always()
+        run: npx license-checker --markdown >> $GITHUB_STEP_SUMMARY
