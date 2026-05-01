@@ -1,6 +1,14 @@
 # Overshoot SDK
 
-> **Warning: Alpha Release**: The API may change in future versions.
+> **Deprecation notice**
+>
+> This JavaScript SDK is deprecated and only supports the legacy Overshoot `v0.2`
+> API (`https://api.overshoot.ai/v0.2`). It does **not** support Overshoot v1.
+>
+> Overshoot v1 is a lightweight REST API and does not require an SDK: create a
+> stream with `/streams`, publish video to the returned LiveKit room, then query
+> frames or segments through the OpenAI-compatible `/chat/completions` endpoint.
+> See the current v1 documentation at https://docs.overshoot.ai/.
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
