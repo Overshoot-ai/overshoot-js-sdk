@@ -8,7 +8,7 @@
 >
 > To migrate, use the OpenAI SDK with any OpenAI-compatible provider (swap the base URL, API key
 > and model name) and send camera frames directly as base64 `image_url` parts.
-> Migration guide: https://overshoot.ai/api-sunset
+> Migration guide: https://platform.overshoot.ai/sunset
 >
 > Help: founders@overshoot.ai or https://calendly.com/overshootai/overshoot-migration
 
