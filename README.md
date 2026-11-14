@@ -1,14 +1,16 @@
 # Overshoot SDK
 
-> **Deprecation notice**
+> **Shutdown notice: this SDK stops working on Saturday, December 5, 2026 at 10:00 AM PT.**
 >
-> This JavaScript SDK is deprecated and only supports the legacy Overshoot `v0.2`
-> API (`https://api.overshoot.ai/v0.2`). It does **not** support Overshoot v1.
+> The Overshoot API (v0.2, v1, v1beta), the playground and platform.overshoot.ai shut down on
+> December 5, 2026. After that, every request returns HTTP 410 with error code `api_shutdown`.
+> The `overshoot` and `@overshoot/sdk` npm packages are deprecated and receive no further releases.
 >
-> Overshoot v1 is a lightweight REST API and does not require an SDK: create a
-> stream with `/streams`, publish video to the returned LiveKit room, then query
-> frames or segments through the OpenAI-compatible `/chat/completions` endpoint.
-> See the current v1 documentation at https://docs.overshoot.ai/.
+> To migrate, use the OpenAI SDK with any OpenAI-compatible provider (swap the base URL, API key
+> and model name) and send camera frames directly as base64 `image_url` parts.
+> Migration guide: https://platform.overshoot.ai/sunset
+>
+> Help: founders@overshoot.ai or https://calendly.com/overshootai/overshoot-migration
 
 TypeScript SDK for real-time AI vision analysis on live video streams.
 
